@@ -15,12 +15,12 @@
   }
   * { box-sizing: border-box; }
   body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 5; }
   header h1 { font-size: 16px; margin: 0; }
   header .sp { flex: 1; }
   main { max-width: 1200px; margin: 0 auto; padding: 20px 16px; display: grid; gap: 18px; }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
-  h2 { font-size: 14px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  h2 { font-size: 14px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   h2 .sp { flex: 1; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
@@ -33,16 +33,18 @@
   button:disabled { opacity: .5; cursor: wait; }
   .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid currentColor; }
   .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); } .muted { color: var(--muted); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  textarea, input[type=text], input[type=password], input[type=number] { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; }
-  textarea { width: 100%; min-height: 64px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
-  .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; margin-top: 12px; }
-  .result { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .result .hd { display: flex; justify-content: space-between; padding: 6px 10px; font-size: 12.5px; border-bottom: 1px solid var(--line); }
-  pre { margin: 0; padding: 10px; background: var(--code); color: var(--codetext); font-size: 12px; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+  textarea, input[type=text], input[type=password], input[type=number], select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; }
+  textarea { width: 100%; min-height: 72px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; margin-top: 12px; }
+  .result { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+  .result .hd { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; font-size: 12.5px; border-bottom: 1px solid var(--line); }
+  pre { margin: 0; padding: 10px; background: var(--code); color: var(--codetext); font-size: 12px; max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, Menlo, monospace; }
   .actions { display: flex; gap: 4px; flex-wrap: wrap; }
   .table-wrap { overflow-x: auto; }
-  #toast { position: fixed; bottom: 16px; right: 16px; max-width: 420px; padding: 10px 14px; border-radius: 8px; background: var(--text); color: var(--bg); display: none; }
+  #toast { position: fixed; bottom: 16px; right: 16px; max-width: 420px; padding: 10px 14px; border-radius: 8px; background: var(--text); color: var(--bg); display: none; white-space: pre-wrap; z-index: 20; }
+  .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); }
 </style>
 </head>
 <body>
@@ -74,18 +76,43 @@
   </section>
 
   <section>
-    <h2>Run command</h2>
-    <textarea id="cmd" placeholder="e.g. curl -s https://ipinfo.io/json">curl -s https://ipinfo.io/ip</textarea>
+    <h2>Scripts &amp; commands <span class="sp"></span>
+      <span class="muted" id="runTarget">target: selected workers</span>
+    </h2>
+    <div class="row" style="margin-bottom:10px">
+      <select id="scriptSel"><option value="">— inline command below —</option></select>
+      <button id="loadScript">Load</button>
+      <button id="delScript" class="danger">Delete</button>
+      <span class="sp" style="flex:1"></span>
+      <label class="row">Upload .sh: <input type="file" id="shfiles" accept=".sh" multiple></label>
+      <button id="uploadSh">Upload</button>
+    </div>
+    <textarea id="cmd" placeholder="#!/bin/sh&#10;curl -s https://ifconfig.co/json">curl -s https://ifconfig.co/country-iso</textarea>
     <div class="row" style="margin-top:8px">
       <button id="runSel" class="primary">Run on selected</button>
       <button id="runAll">Run on all running</button>
-      <label class="row muted">timeout (s) <input id="timeout" type="number" value="60" min="1" max="600" style="width:80px"></label>
+      <label class="row muted">timeout (s) <input id="timeout" type="number" value="300" min="1" max="3600" style="width:84px"></label>
+      <span class="sp" style="flex:1"></span>
+      <button id="saveAsScript">Save editor as .sh…</button>
     </div>
-    <div id="results" class="results"></div>
+  </section>
+
+  <section id="jobBox" style="display:none">
+    <h2>Live job output <span class="tag" id="jobId"></span>
+      <span class="sp"></span>
+      <span id="jobState" class="muted"></span>
+      <button id="jobStop">Stop stream</button>
+      <button id="jobClose">Close</button>
+    </h2>
+    <div id="jobResults" class="results"></div>
   </section>
 
   <section id="logsBox" style="display:none">
-    <h2>Logs: <span id="logsName" class="mono"></span><span class="sp"></span><button id="closeLogs">Close</button></h2>
+    <h2>Live logs: <span id="logsName" class="mono"></span>
+      <span class="sp"></span>
+      <span id="logsState" class="muted"></span>
+      <button id="closeLogs">Close</button>
+    </h2>
     <pre id="logs"></pre>
   </section>
 </main>
@@ -97,7 +124,7 @@ let token = '';
 try { token = localStorage.getItem('mvpn-token') || ''; } catch (e) {}
 $('#token').value = token;
 
-function toast(msg, ms = 3500) {
+function toast(msg, ms = 4000) {
   const t = $('#toast'); t.textContent = msg; t.style.display = 'block';
   clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = 'none', ms);
 }
@@ -167,7 +194,7 @@ function render(workers) {
           : act('Start', () => api('POST', `/api/workers/${w.name}/start`), 'primary'),
         act('Restart', () => api('POST', `/api/workers/${w.name}/restart`)),
         act('IP', () => api('POST', `/api/workers/${w.name}/ip`)),
-        act('Logs', () => showLogs(w.name)),
+        el('button', { onclick: () => streamLogs(w.name) }, 'Logs'),
         act('Remove', () => api('DELETE', `/api/workers/${w.name}`), 'danger'),
         act('Delete profile', () => confirm(`Delete profile ${w.name}?`) && api('DELETE', `/api/profiles/${w.name}`), 'danger'),
       )),
@@ -175,13 +202,25 @@ function render(workers) {
   }));
 }
 
-async function showLogs(name) {
-  const r = await api('GET', `/api/workers/${name}/logs?tail=200`);
-  $('#logsName').textContent = name; $('#logs').textContent = r.logs;
-  $('#logsBox').style.display = ''; $('#logs').scrollTop = 1e9;
+/* ---- live container logs via SSE ---- */
+let logSrc = null;
+function streamLogs(name) {
+  if (logSrc) logSrc.close();
+  $('#logsName').textContent = name; $('#logs').textContent = '';
+  $('#logsBox').style.display = ''; $('#logsState').textContent = 'connecting…';
+  const src = new EventSource(`/api/workers/${name}/logs/stream?tail=200&token=${encodeURIComponent(token)}`);
+  logSrc = src;
+  src.onopen = () => $('#logsState').innerHTML = '<span class="dot" style="background:var(--ok)"></span>live';
+  src.onmessage = ev => {
+    const atBottom = $('#logs').scrollTop + $('#logs').clientHeight >= $('#logs').scrollHeight - 30;
+    $('#logs').append(JSON.parse(ev.data).line);
+    if (atBottom) $('#logs').scrollTop = 1e9;
+  };
+  src.onerror = () => { $('#logsState').innerHTML = '<span class="dot" style="background:var(--bad)"></span>disconnected'; };
 }
-$('#closeLogs').onclick = () => $('#logsBox').style.display = 'none';
+$('#closeLogs').onclick = () => { if (logSrc) logSrc.close(); $('#logsBox').style.display = 'none'; };
 
+/* ---- bulk worker actions ---- */
 document.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click', async () => {
   const action = b.dataset.bulk;
   if (action === 'remove' && !confirm('Remove all worker containers? Profiles are kept.')) return;
@@ -207,30 +246,114 @@ $('#upload').onclick = async () => {
   refresh();
 };
 
-async function run(targets) {
-  const command = $('#cmd').value.trim();
-  if (!command) return toast('Enter a command');
-  if (Array.isArray(targets) && !targets.length) return toast('Select at least one worker');
-  const out = $('#results'); out.replaceChildren(el('div', { class: 'muted' }, 'Running…'));
+/* ---- scripts ---- */
+async function refreshScripts() {
   try {
-    const r = await api('POST', '/api/exec', { command, targets, timeout: +$('#timeout').value || 60 });
-    out.replaceChildren(...Object.entries(r).map(([name, res]) => el('div', { class: 'result' },
-      el('div', { class: 'hd' }, el('b', { class: 'mono' }, name),
-        el('span', { class: res.exit === 0 ? 'ok' : 'bad' }, res.error ? 'error' : `exit ${res.exit} · ${res.ms} ms`)),
-      el('pre', {}, res.error || res.output || '(no output)'))));
-    if (!Object.keys(r).length) out.replaceChildren(el('div', { class: 'muted' }, 'No running workers.'));
-  } catch (e) { out.replaceChildren(el('div', { class: 'bad' }, e.message)); }
+    const list = await api('GET', '/api/scripts');
+    const sel = $('#scriptSel'); const cur = sel.value;
+    sel.replaceChildren(el('option', { value: '' }, '— inline command below —'),
+      ...list.map(n => el('option', { value: n }, n)));
+    sel.value = cur;
+  } catch (e) {}
 }
-$('#runSel').onclick = () => run([...selected]);
-$('#runAll').onclick = () => run('all');
+$('#uploadSh').onclick = async () => {
+  const files = $('#shfiles').files;
+  if (!files.length) return toast('Choose .sh files first');
+  const fd = new FormData(); for (const f of files) fd.append('files', f);
+  try { const r = await api('POST', '/api/scripts', fd, true); toast('Uploaded: ' + r.saved.join(', ')); $('#shfiles').value = ''; }
+  catch (e) { toast(e.message); }
+  refreshScripts();
+};
+$('#loadScript').onclick = async () => {
+  const name = $('#scriptSel').value;
+  if (!name) return toast('Pick a script to load');
+  try { const r = await api('GET', `/api/scripts/${name}`); $('#cmd').value = r.body; toast('Loaded ' + name); }
+  catch (e) { toast(e.message); }
+};
+$('#delScript').onclick = async () => {
+  const name = $('#scriptSel').value;
+  if (!name) return toast('Pick a script to delete');
+  if (!confirm(`Delete script ${name}?`)) return;
+  try { await api('DELETE', `/api/scripts/${name}`); toast('Deleted ' + name); } catch (e) { toast(e.message); }
+  refreshScripts();
+};
+$('#saveAsScript').onclick = async () => {
+  let name = prompt('Save editor contents as which .sh file?', 'script.sh');
+  if (!name) return;
+  if (!name.endsWith('.sh')) name += '.sh';
+  const fd = new FormData();
+  fd.append('files', new File([$('#cmd').value], name, { type: 'text/x-shellscript' }));
+  try { await api('POST', '/api/scripts', fd, true); toast('Saved ' + name); } catch (e) { toast(e.message); }
+  refreshScripts();
+};
+
+/* ---- run a streaming job ---- */
+let jobSrc = null, jobPanes = {};
+function startJob(targets) {
+  const scriptName = $('#scriptSel').value;
+  const payload = { targets, timeout: +$('#timeout').value || 300 };
+  if (scriptName) payload.script = scriptName;
+  else {
+    const bodyText = $('#cmd').value.trim();
+    if (!bodyText) return toast('Enter a command or pick a script');
+    payload.body = bodyText;
+  }
+  if (Array.isArray(targets) && !targets.length) return toast('Select at least one worker');
+  api('POST', '/api/run', payload).then(r => openJob(r.job, r.targets)).catch(e => toast(e.message));
+}
+function openJob(jobId, targets) {
+  if (jobSrc) jobSrc.close();
+  jobPanes = {};
+  $('#jobId').textContent = jobId;
+  $('#jobBox').style.display = '';
+  $('#jobState').innerHTML = '<span class="dot" style="background:var(--warn)"></span>running';
+  const grid = $('#jobResults'); grid.replaceChildren();
+  for (const name of targets) {
+    const pre = el('pre', {});
+    const state = el('span', { class: 'muted' }, '…');
+    grid.append(el('div', { class: 'result' },
+      el('div', { class: 'hd' }, el('b', { class: 'mono' }, name), state), pre));
+    jobPanes[name] = { pre, state };
+  }
+  const src = new EventSource(`/api/jobs/${jobId}/stream?token=${encodeURIComponent(token)}`);
+  jobSrc = src;
+  src.onmessage = ev => {
+    const d = JSON.parse(ev.data);
+    if (d.event === 'done') { $('#jobState').innerHTML = '<span class="dot" style="background:var(--ok)"></span>finished'; src.close(); return; }
+    if (d.event === 'start') return;
+    const pane = jobPanes[d.worker]; if (!pane) return;
+    if (d.event === 'exit') {
+      const ok = d.code === '0';
+      pane.state.className = ok ? 'ok' : 'bad';
+      pane.state.textContent = d.code === '124' ? 'timed out' : `exit ${d.code}`;
+      if (d.line) pane.pre.append(d.line);
+      return;
+    }
+    if (d.line !== undefined) {
+      const atBottom = pane.pre.scrollTop + pane.pre.clientHeight >= pane.pre.scrollHeight - 30;
+      pane.pre.append(d.line);
+      if (atBottom) pane.pre.scrollTop = 1e9;
+    }
+  };
+  src.onerror = () => { $('#jobState').innerHTML = '<span class="dot" style="background:var(--bad)"></span>stream error'; };
+}
+$('#runSel').onclick = () => startJob([...selected]);
+$('#runAll').onclick = () => startJob('all');
+$('#jobStop').onclick = () => { if (jobSrc) jobSrc.close(); $('#jobState').textContent = 'stopped (job keeps running on server)'; };
+$('#jobClose').onclick = () => { if (jobSrc) jobSrc.close(); $('#jobBox').style.display = 'none'; };
+
+$('#scriptSel').addEventListener('change', e => {
+  $('#runTarget').textContent = e.target.value ? `will run saved script: ${e.target.value}` : 'target: selected workers';
+});
 
 $('#saveToken').onclick = () => {
   token = $('#token').value.trim();
   try { localStorage.setItem('mvpn-token', token); } catch (e) {}
-  refresh();
+  refresh(); refreshScripts();
 };
 
 refresh();
+refreshScripts();
 setInterval(refresh, 5000);
 </script>
 </body>

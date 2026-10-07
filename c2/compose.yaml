@@ -1,28 +1,48 @@
-# VPN fleet controller. Workers (one gluetun + one app container per .ovpn
-# profile) are created at runtime by the controller, not listed here.
+# VPN fleet controller + DragonflyDB streaming bus.
+# Workers (one gluetun + one app container per .ovpn profile) are created at
+# runtime by the controller, not listed here.
 #
-# The controller mounts the Docker socket, which is equivalent to root on
-# the host: keep it on localhost or behind a strong CONTROL_TOKEN.
+# The controller mounts the Docker socket, which is equivalent to root on the
+# host: keep it on localhost or behind a strong CONTROL_TOKEN.
 
 services:
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    restart: unless-stopped
+    command: ["--logtostderr", "--default_lua_flags=allow-undeclared-keys"]
+    ulimits:
+      memlock: -1
+    volumes:
+      - dragonfly:/data
+    networks: [mvpn]
+    # no ports published; only the controller talks to it over the mvpn network
+
   controller:
     build: ./controller
     restart: unless-stopped
+    depends_on: [dragonfly]
     ports:
       - "127.0.0.1:8088:8080"
     environment:
       CONTROL_TOKEN: ${CONTROL_TOKEN:?set CONTROL_TOKEN in .env}
+      REDIS_URL: redis://dragonfly:6379/0
       PROFILES_VOLUME: mvpn-profiles
+      SCRIPTS_VOLUME: mvpn-scripts
       WORKER_NETWORK: mvpn-net
       TZ: Asia/Kolkata
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - profiles:/profiles
+      - scripts:/scripts
     networks: [mvpn]
 
 volumes:
   profiles:
     name: mvpn-profiles
+  scripts:
+    name: mvpn-scripts
+  dragonfly:
+    name: mvpn-dragonfly
 
 networks:
   mvpn:

@@ -12,23 +12,30 @@ For every `.ovpn` profile the controller manages a **worker** = two containers:
 | Container        | Role                                                                    |
 |------------------|-------------------------------------------------------------------------|
 | `mvpn-<p>-vpn`   | [gluetun](https://github.com/qdm12/gluetun) holding that one tunnel      |
-| `mvpn-<p>-app`   | shares the vpn container's network; your commands run here              |
+| `mvpn-<p>-app`   | shares the vpn container's network; your commands/scripts run here      |
 
 ```
-                       ┌─────────────── controller (web UI + API) ───────────────┐
-                       │   mounts /var/run/docker.sock, creates workers on demand  │
-                       └──────┬───────────────────┬───────────────────┬───────────┘
-                     worker A │           worker B │          worker C │
-                   ┌──────────┴─────┐   ┌──────────┴─────┐   ┌─────────┴──────┐
-                   │ vpn (gluetun)  │   │ vpn (gluetun)  │   │ vpn (gluetun)  │
-                   │ app  ◄shares   │   │ app  ◄shares   │   │ app  ◄shares   │
-                   └──────┬─────────┘   └──────┬─────────┘   └──────┬─────────┘
-                       tunnel A             tunnel B             tunnel C
+          ┌──────────────── controller (web UI + API) ───────────────┐
+          │  mounts /var/run/docker.sock, creates workers on demand   │
+          │  streams script output + logs through DragonflyDB (SSE)   │
+          └──────┬───────────────────┬───────────────────┬───────────┘
+        worker A │           worker B │          worker C │     ┌────────────┐
+      ┌──────────┴─────┐   ┌──────────┴─────┐   ┌─────────┴──┐  │ DragonflyDB │
+      │ vpn (gluetun)  │   │ vpn (gluetun)  │   │ vpn        │  │ (Redis API) │
+      │ app  ◄shares   │   │ app  ◄shares   │   │ app ◄shares│  │  streams    │
+      └──────┬─────────┘   └──────┬─────────┘   └──────┬─────┘  └────────────┘
+          tunnel A             tunnel B             tunnel C
 ```
 
 Because each app container shares its vpn container's network stack
 (`network_mode: container:<vpn>`), **all** of its traffic exits through that VPN,
 and the tunnels stay independent even if they use overlapping subnets.
+
+**DragonflyDB sidecar** is the streaming bus. When you run a script, the
+controller fans it out to every target worker and writes each line of output
+into a per-job Redis **stream** in Dragonfly. The browser tails that stream over
+**SSE**, so output appears live and survives a page reload (replayed from the
+stream, which is kept for 6 h). Live gluetun logs stream the same way.
 
 ## Quick start
 
@@ -63,7 +70,23 @@ All `/api/*` calls need `X-Token: <CONTROL_TOKEN>`.
 | `DELETE /api/workers/<name>`        | remove the worker (keep the profile)        |
 | `GET  /api/workers/<name>/logs`     | gluetun logs (`?tail=200`)                  |
 | `POST /api/bulk/<action>`           | same actions across many; body `{"targets":[...]}` or omit for all |
-| `POST /api/exec`                    | `{"command":"...","targets":"all","timeout":60}` run a command fleet-wide |
+| `POST /api/exec`                    | `{"command":"...","targets":"all","timeout":60}` one-shot, returns output |
+| `GET  /api/scripts`                 | list uploaded `.sh` scripts                 |
+| `POST /api/scripts` (multipart)     | upload one or more `.sh` scripts            |
+| `GET/DELETE /api/scripts/<name>`    | read / delete a script                      |
+| `POST /api/run`                     | stream a job: `{"script":"x.sh"}` or `{"body":"<shell>"}` + `targets`, `timeout`; returns a job id |
+| `GET  /api/jobs/<id>/stream`        | **SSE** live output of a job (replays + follows) |
+| `GET  /api/workers/<name>/logs/stream` | **SSE** live gluetun logs                 |
+
+SSE endpoints can't send headers, so they take the token as `?token=<CONTROL_TOKEN>`.
+
+```bash
+# upload a script, run it on every worker, and watch output live
+curl -s -H "X-Token: $TOK" -F files=@probe.sh http://127.0.0.1:8088/api/scripts
+ID=$(curl -s -X POST -H "X-Token: $TOK" -H 'Content-Type: application/json' \
+  -d '{"script":"probe.sh","targets":"all"}' http://127.0.0.1:8088/api/run | jq -r .job)
+curl -N "http://127.0.0.1:8088/api/jobs/$ID/stream?token=$TOK"
+```
 
 ```bash
 TOK=$(grep -o '[0-9a-f]\{48\}' c2/.env)

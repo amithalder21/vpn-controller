@@ -6,30 +6,38 @@ Manages N workers, one per OpenVPN profile. A worker is two containers:
                           traffic leaves through that tunnel; commands run here
 Talks to the Docker engine through the mounted socket.
 """
+import base64
 import hmac
 import json
 import os
 import re
+import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import docker
+import redis
 from docker.errors import APIError, ImageNotFound, NotFound
-from flask import Flask, abort, jsonify, request, send_from_directory
+from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
 PREFIX = os.environ.get("WORKER_PREFIX", "mvpn")
 PROFILES_DIR = "/profiles"
+SCRIPTS_DIR = "/scripts"
 PROFILES_VOLUME = os.environ.get("PROFILES_VOLUME", "mvpn-profiles")
 NETWORK = os.environ.get("WORKER_NETWORK", "mvpn-net")
 VPN_IMAGE = os.environ.get("VPN_IMAGE", "qmcgaw/gluetun:latest")
 APP_IMAGE = os.environ.get("APP_IMAGE", "curlimages/curl:latest")
 TOKEN = os.environ.get("CONTROL_TOKEN", "")
 TZ = os.environ.get("TZ", "UTC")
+REDIS_URL = os.environ.get("REDIS_URL", "redis://dragonfly:6379/0")
+JOB_TTL = 6 * 3600  # keep a job's streamed output in Dragonfly this long
 MAX_OUTPUT = 64 * 1024
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 
 client = docker.from_env()
-pool = ThreadPoolExecutor(max_workers=16)
+pool = ThreadPoolExecutor(max_workers=32)
+rdb = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 ip_cache = {}  # profile -> {"ip":..., "country":..., "checked": epoch}
 
 app = Flask(__name__, static_folder="static")
@@ -227,6 +235,108 @@ def resolve_targets(targets):
     return [clean_name(t) for t in targets]
 
 
+# ---------- scripts & streaming jobs (via DragonflyDB) ----------
+
+def list_scripts():
+    if not os.path.isdir(SCRIPTS_DIR):
+        return []
+    return sorted(f for f in os.listdir(SCRIPTS_DIR) if f.endswith(".sh"))
+
+
+def script_path(name):
+    name = clean_name(re.sub(r"\.sh$", "", name)) + ".sh"
+    return os.path.join(SCRIPTS_DIR, name), name
+
+
+def job_key(job_id):
+    return f"job:{job_id}"
+
+
+def publish(job_id, **fields):
+    """Append one event to the job's Dragonfly stream."""
+    rdb.xadd(job_key(job_id), {k: str(v) for k, v in fields.items()},
+             maxlen=10000, approximate=True)
+    rdb.expire(job_key(job_id), JOB_TTL)
+
+
+def stream_exec(name, script_b64, timeout, job_id):
+    """Run the decoded script in one worker, streaming its output live."""
+    wapp = get(name, "app")
+    if not wapp or wapp.status != "running":
+        publish(job_id, worker=name, event="exit", code="-1",
+                line="worker not running\n")
+        return
+    cmd = ["timeout", str(int(timeout)), "sh", "-c",
+           f"echo {script_b64} | base64 -d | sh"]
+    try:
+        ex = client.api.exec_create(wapp.id, cmd, tty=False)
+        buf = ""
+        for chunk in client.api.exec_start(ex["Id"], stream=True):
+            buf += chunk.decode("utf-8", errors="replace")
+            while "\n" in buf:
+                line, buf = buf.split("\n", 1)
+                publish(job_id, worker=name, line=line + "\n")
+        if buf:
+            publish(job_id, worker=name, line=buf + "\n")
+        code = client.api.exec_inspect(ex["Id"]).get("ExitCode")
+        publish(job_id, worker=name, event="exit",
+                code=("124" if code == 124 else str(code)))
+    except APIError as e:
+        publish(job_id, worker=name, event="exit", code="-1",
+                line=f"error: {e.explanation or e}\n")
+
+
+def run_job(script_b64, names, timeout):
+    """Start one streaming exec per target, then mark the job done."""
+    job_id = uuid.uuid4().hex[:12]
+    publish(job_id, event="start", workers=json.dumps(names),
+            count=len(names))
+
+    def coordinator():
+        futures = [pool.submit(stream_exec, n, script_b64, timeout, job_id)
+                   for n in names]
+        for f in futures:
+            f.result()
+        publish(job_id, event="done")
+
+    threading.Thread(target=coordinator, daemon=True).start()
+    return job_id
+
+
+def sse(generator):
+    return Response(generator, mimetype="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+    })
+
+
+def job_events(job_id):
+    """SSE: replay then follow a job's Dragonfly stream to the browser."""
+    last = "0"
+    while True:
+        resp = rdb.xread({job_key(job_id): last}, block=15000, count=200)
+        if not resp:
+            yield ": ping\n\n"
+            continue
+        for _, entries in resp:
+            for eid, fields in entries:
+                last = eid
+                yield f"data: {json.dumps(fields)}\n\n"
+                if fields.get("event") == "done":
+                    return
+
+
+def container_log_events(name, tail):
+    """SSE: follow a worker's gluetun logs live."""
+    vpn = get(name, "vpn")
+    if not vpn:
+        yield f"data: {json.dumps({'line': 'worker not found'})}\n\n"
+        return
+    for raw in vpn.logs(stream=True, follow=True, tail=tail):
+        yield f"data: {json.dumps({'line': raw.decode('utf-8', errors='replace')})}\n\n"
+
+
 # ---------- auth ----------
 
 @app.before_request
@@ -237,6 +347,9 @@ def require_token():
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
         given = auth[7:]
+    # SSE (EventSource) cannot set headers, so stream routes accept ?token=
+    if not given:
+        given = request.args.get("token", "")
     if not hmac.compare_digest(given.encode(), TOKEN.encode()):
         abort(401, "missing or wrong token")
 
@@ -351,6 +464,94 @@ def api_exec():
     return jsonify(fan_out(names, lambda n: exec_in(n, command, timeout)))
 
 
+# ---- scripts ----
+
+@app.get("/api/scripts")
+def api_scripts():
+    return jsonify(list_scripts())
+
+
+@app.post("/api/scripts")
+def api_upload_script():
+    files = request.files.getlist("files")
+    if not files:
+        abort(400, "send one or more .sh files in the 'files' field")
+    saved = []
+    for f in files:
+        if not (f.filename or "").endswith(".sh"):
+            abort(400, f"{f.filename}: not a .sh file")
+        path, name = script_path(f.filename)
+        f.save(path)
+        saved.append(name)
+    return jsonify(saved=saved)
+
+
+@app.get("/api/scripts/<name>")
+def api_get_script(name):
+    path, _ = script_path(name)
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return jsonify(name=os.path.basename(path), body=fh.read())
+    except FileNotFoundError:
+        abort(404, "no such script")
+
+
+@app.delete("/api/scripts/<name>")
+def api_delete_script(name):
+    path, _ = script_path(name)
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        abort(404, "no such script")
+    return jsonify(deleted=os.path.basename(path))
+
+
+# ---- streaming jobs ----
+
+@app.post("/api/run")
+def api_run():
+    """Run an uploaded script OR an inline body across workers, streaming output.
+
+    Body: {"script": "<name.sh>"} or {"body": "<shell>"}, plus
+    "targets" ("all" or [names]) and optional "timeout".
+    Returns a job id; tail it at GET /api/jobs/<id>/stream.
+    """
+    body = request.get_json(silent=True) or {}
+    if body.get("script"):
+        path, _ = script_path(body["script"])
+        try:
+            with open(path, "rb") as fh:
+                raw = fh.read()
+        except FileNotFoundError:
+            abort(404, "no such script")
+    elif body.get("body"):
+        raw = body["body"].encode()
+    else:
+        abort(400, "provide 'script' (a saved name) or 'body' (inline shell)")
+    names = resolve_targets(body.get("targets"))
+    if not names:
+        abort(400, "no running workers to target")
+    timeout = max(1, min(int(body.get("timeout", 300)), 3600))
+    script_b64 = base64.b64encode(raw).decode()
+    job_id = run_job(script_b64, names, timeout)
+    return jsonify(job=job_id, targets=names)
+
+
+@app.get("/api/jobs/<job_id>/stream")
+def api_job_stream(job_id):
+    if not re.fullmatch(r"[0-9a-f]{6,32}", job_id):
+        abort(400, "bad job id")
+    return sse(job_events(job_id))
+
+
+@app.get("/api/workers/<name>/logs/stream")
+def api_logs_stream(name):
+    name = clean_name(name)
+    tail = min(int(request.args.get("tail", 100)), 2000)
+    return sse(container_log_events(name, tail))
+
+
 if __name__ == "__main__":
     os.makedirs(PROFILES_DIR, exist_ok=True)
+    os.makedirs(SCRIPTS_DIR, exist_ok=True)
     app.run(host="0.0.0.0", port=8080, threaded=True)
