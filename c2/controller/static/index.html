@@ -101,6 +101,7 @@
     <h2>Live job output <span class="tag" id="jobId"></span>
       <span class="sp"></span>
       <span id="jobState" class="muted"></span>
+      <button id="jobCancel" class="danger">Cancel job</button>
       <button id="jobStop">Stop stream</button>
       <button id="jobClose">Close</button>
     </h2>
@@ -288,7 +289,7 @@ $('#saveAsScript').onclick = async () => {
 };
 
 /* ---- run a streaming job ---- */
-let jobSrc = null, jobPanes = {};
+let jobSrc = null, jobPanes = {}, currentJob = null;
 function startJob(targets) {
   const scriptName = $('#scriptSel').value;
   const payload = { targets, timeout: +$('#timeout').value || 300 };
@@ -303,7 +304,7 @@ function startJob(targets) {
 }
 function openJob(jobId, targets) {
   if (jobSrc) jobSrc.close();
-  jobPanes = {};
+  jobPanes = {}; currentJob = jobId;
   $('#jobId').textContent = jobId;
   $('#jobBox').style.display = '';
   $('#jobState').innerHTML = '<span class="dot" style="background:var(--warn)"></span>running';
@@ -321,6 +322,7 @@ function openJob(jobId, targets) {
     const d = JSON.parse(ev.data);
     if (d.event === 'done') { $('#jobState').innerHTML = '<span class="dot" style="background:var(--ok)"></span>finished'; src.close(); return; }
     if (d.event === 'start') return;
+    if (d.event === 'cancel') { toast(`Cancelled: killed ${d.total} process(es)`); return; }
     const pane = jobPanes[d.worker]; if (!pane) return;
     if (d.event === 'exit') {
       const ok = d.code === '0';
@@ -339,7 +341,16 @@ function openJob(jobId, targets) {
 }
 $('#runSel').onclick = () => startJob([...selected]);
 $('#runAll').onclick = () => startJob('all');
-$('#jobStop').onclick = () => { if (jobSrc) jobSrc.close(); $('#jobState').textContent = 'stopped (job keeps running on server)'; };
+$('#jobCancel').onclick = async ev => {
+  if (!currentJob) return;
+  ev.target.disabled = true;
+  try { const r = await api('POST', `/api/jobs/${currentJob}/cancel`, {});
+    const total = Object.values(r).reduce((a, v) => a + (v.killed || 0), 0);
+    toast(`Cancel sent — killed ${total} process(es) across workers`);
+  } catch (e) { toast(e.message); }
+  ev.target.disabled = false;
+};
+$('#jobStop').onclick = () => { if (jobSrc) jobSrc.close(); $('#jobState').textContent = 'stream stopped (job still running — use Cancel to kill it)'; };
 $('#jobClose').onclick = () => { if (jobSrc) jobSrc.close(); $('#jobBox').style.display = 'none'; };
 
 $('#scriptSel').addEventListener('change', e => {

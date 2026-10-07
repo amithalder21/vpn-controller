@@ -273,14 +273,23 @@ def stream_exec(name, script_b64, timeout, job_id):
     # the interpreter (bash is available in the worker image); files with no
     # shebang fall back to sh. tr strips CR so CRLF uploads don't break. The
     # outer `timeout` sets rc=124 on overrun, which we surface below.
+    # Scripts with their own shebang run as-is (bash/sh as they ask); scripts
+    # with no shebang — e.g. an inline command — run under bash, because
+    # `timeout <file>` cannot exec a shebang-less file (it would exit 126).
     runner = (
         'd=$(mktemp); echo "$MVPN_B64" | base64 -d | tr -d "\\r" > "$d"; '
-        f'chmod +x "$d"; timeout {int(timeout)} "$d"; rc=$?; rm -f "$d"; exit $rc'
+        'chmod +x "$d"; '
+        f'if head -c2 "$d" | grep -q "^#!"; then timeout {int(timeout)} "$d"; '
+        f'else timeout {int(timeout)} bash "$d"; fi; '
+        'rc=$?; rm -f "$d"; exit $rc'
     )
     cmd = ["sh", "-c", runner]
     try:
+        # MVPN_JOB is inherited by every process the script spawns, so cancel
+        # can find and kill the whole tree (see cancel_in).
         ex = client.api.exec_create(
-            wapp.id, cmd, tty=False, environment={"MVPN_B64": script_b64})
+            wapp.id, cmd, tty=False,
+            environment={"MVPN_B64": script_b64, "MVPN_JOB": job_id})
         buf = ""
         for chunk in client.api.exec_start(ex["Id"], stream=True):
             buf += chunk.decode("utf-8", errors="replace")
@@ -295,6 +304,35 @@ def stream_exec(name, script_b64, timeout, job_id):
     except APIError as e:
         publish(job_id, worker=name, event="exit", code="-1",
                 line=f"error: {e.explanation or e}\n")
+
+
+# Kills every process in a worker tagged with the given job id (parent sh,
+# timeout, the script and anything it spawned), TERM then KILL.
+KILL_SH = r'''
+jid="$1"
+match() { tr '\0' '\n' < "$1/environ" 2>/dev/null | grep -Fxq "MVPN_JOB=$jid"; }
+n=0
+for p in /proc/[0-9]*; do match "$p" && { kill -TERM "${p#/proc/}" 2>/dev/null && n=$((n+1)); }; done
+sleep 1
+for p in /proc/[0-9]*; do match "$p" && kill -KILL "${p#/proc/}" 2>/dev/null; done
+echo "$n"
+'''
+
+
+def cancel_in(name, job_id):
+    wapp = get(name, "app")
+    if not wapp or wapp.status != "running":
+        return {"killed": 0, "skipped": "not running"}
+    res = wapp.exec_run(["sh", "-c", KILL_SH, "_", job_id])
+    out = (res.output or b"").decode(errors="replace").strip()
+    return {"killed": int(out) if out.isdigit() else 0}
+
+
+def cancel_job(job_id, names):
+    result = fan_out(names, lambda n: cancel_in(n, job_id))
+    publish(job_id, event="cancel",
+            total=sum(v.get("killed", 0) for v in result.values()))
+    return result
 
 
 def run_job(script_b64, names, timeout):
@@ -553,6 +591,29 @@ def api_job_stream(job_id):
     if not re.fullmatch(r"[0-9a-f]{6,32}", job_id):
         abort(400, "bad job id")
     return sse(job_events(job_id))
+
+
+def job_targets(job_id):
+    """Recover a job's target workers from its recorded start event."""
+    try:
+        for _eid, fields in rdb.xrange(job_key(job_id), count=1):
+            if fields.get("workers"):
+                return json.loads(fields["workers"])
+    except (redis.RedisError, ValueError):
+        pass
+    return []
+
+
+@app.post("/api/jobs/<job_id>/cancel")
+def api_job_cancel(job_id):
+    if not re.fullmatch(r"[0-9a-f]{6,32}", job_id):
+        abort(400, "bad job id")
+    body = request.get_json(silent=True) or {}
+    if body.get("targets"):
+        names = [clean_name(t) for t in body["targets"]]
+    else:
+        names = job_targets(job_id) or resolve_targets(None)
+    return jsonify(cancel_job(job_id, names))
 
 
 @app.get("/api/workers/<name>/logs/stream")

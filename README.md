@@ -76,6 +76,7 @@ All `/api/*` calls need `X-Token: <CONTROL_TOKEN>`.
 | `GET/DELETE /api/scripts/<name>`    | read / delete a script                      |
 | `POST /api/run`                     | stream a job: `{"script":"x.sh"}` or `{"body":"<shell>"}` + `targets`, `timeout`; returns a job id |
 | `GET  /api/jobs/<id>/stream`        | **SSE** live output of a job (replays + follows) |
+| `POST /api/jobs/<id>/cancel`        | kill that job's processes in the workers (TERM, then KILL) |
 | `GET  /api/workers/<name>/logs/stream` | **SSE** live gluetun logs                 |
 
 SSE endpoints can't send headers, so they take the token as `?token=<CONTROL_TOKEN>`.
