@@ -4,32 +4,37 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VPN Fleet Control</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%235b5bd6'/%3E%3Cpath d='M17 5 8 18h6l-1 9 9-13h-6z' fill='white'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111317'/%3E%3Cg fill='none' stroke='white' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='16' cy='16' r='3'/%3E%3Ccircle cx='8' cy='8' r='2'/%3E%3Ccircle cx='24' cy='8' r='2'/%3E%3Ccircle cx='16' cy='25' r='2'/%3E%3Cpath d='M13.8 13.8 9.4 9.4M18.2 13.8l4.4-4.4M16 19v4'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #f7f8fa; --panel: #fff; --panel2: #f4f6f8; --text: #11151b; --muted: #677084;
-    --line: #e5e8ec; --line2: #eef1f4; --accent: #5b5bd6; --accent-weak: #ecebfb;
-    --ok: #0f9d58; --ok-bg: #e4f5ec; --warn: #a66a00; --warn-bg: #fbf0d9; --bad: #d04437; --bad-bg: #fbe7e4;
-    --code: #0d1117; --codetext: #d6dde6; --radius: 12px; --shadow: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.07);
+    --bg: #fbfbfc; --panel: #ffffff; --panel2: #f5f6f8; --text: #0a0c10; --muted: #5f6570;
+    --line: #e6e8eb; --line2: #f0f1f3; --accent: #2563eb; --accent-weak: #eaf0fe;
+    --ink: #111317; --ink-text: #ffffff;
+    --ok: #0a7d41; --ok-bg: #e8f4ed; --warn: #8a5a00; --warn-bg: #f7eeda; --bad: #c0362b; --bad-bg: #fbe7e5;
+    --code: #0c0e12; --codetext: #d4dae2; --radius: 11px; --shadow: 0 1px 2px rgba(10,12,16,.04), 0 1px 2px rgba(10,12,16,.06);
     --sidebar: 236px;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #0b0e12; --panel: #13171d; --panel2: #1a1f27; --text: #e8ebf0; --muted: #8a94a3;
-      --line: #252b34; --line2: #1d222a; --accent: #8385f5; --accent-weak: #1d1f38;
-      --ok: #42c07c; --ok-bg: #11291d; --warn: #e0a344; --warn-bg: #2a2110; --bad: #ef6a5e; --bad-bg: #2b1512;
-      --code: #090c10; --codetext: #cdd6df; --shadow: 0 1px 2px rgba(0,0,0,.45); }
+    :root { --bg: #0a0b0d; --panel: #121316; --panel2: #191b1f; --text: #ecedef; --muted: #8a9099;
+      --line: #26282d; --line2: #1b1d21; --accent: #5b8cff; --accent-weak: #16203a;
+      --ink: #f4f5f6; --ink-text: #0a0b0d;
+      --ok: #3fb973; --ok-bg: #11271b; --warn: #d79a3c; --warn-bg: #271f10; --bad: #ec6a5e; --bad-bg: #2a1512;
+      --code: #08090b; --codetext: #ccd3db; --shadow: 0 1px 2px rgba(0,0,0,.5); }
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
-  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+  body { font: 13.5px/1.5 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; letter-spacing: -.005em; }
   a { color: var(--accent); }
 
   .app { display: flex; min-height: 100vh; }
 
   /* sidebar */
   .sidebar { width: var(--sidebar); flex: none; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; }
-  .brand { display: flex; align-items: center; gap: 10px; font-weight: 680; letter-spacing: -.01em; font-size: 15px; padding: 16px 18px; }
-  .logo { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), #9a9af2); display: grid; place-items: center; color: #fff; font-size: 15px; box-shadow: var(--shadow); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: -.02em; font-size: 15px; padding: 18px 18px 16px; }
+  .logo { width: 28px; height: 28px; border-radius: 8px; background: var(--ink); display: grid; place-items: center; color: var(--ink-text); flex: none; }
+  .logo svg { width: 17px; height: 17px; }
   .nav { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; flex: 1; }
   .nav-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: none; background: none; color: var(--muted); font: inherit; font-weight: 550; padding: 9px 11px; border-radius: 9px; cursor: pointer; }
   .nav-item svg { width: 17px; height: 17px; flex: none; }
@@ -76,8 +81,8 @@
 
   button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 11px; cursor: pointer; transition: background .12s, border-color .12s, color .12s; white-space: nowrap; }
   button:hover { background: var(--panel2); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.primary:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+  button.primary { background: var(--ink); border-color: var(--ink); color: var(--ink-text); }
+  button.primary:hover { background: color-mix(in srgb, var(--ink) 86%, var(--bg)); border-color: color-mix(in srgb, var(--ink) 86%, var(--bg)); }
   button.ghost { border-color: transparent; background: transparent; padding: 5px 8px; color: var(--muted); }
   button.ghost:hover { background: var(--panel2); color: var(--text); }
   button.danger { color: var(--bad); }
@@ -122,6 +127,7 @@
   .dropzone { border: 1.5px dashed var(--line); border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; cursor: pointer; }
   .dropzone:hover { border-color: var(--accent); color: var(--text); }
   .dropzone.drag { border-color: var(--accent); background: var(--accent-weak); color: var(--text); }
+  .dz-ico { width: 17px; height: 17px; flex: none; opacity: .75; }
   .kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 5px; color: var(--muted); background: var(--panel2); }
   .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .divider { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
@@ -196,7 +202,7 @@
 <body>
 <div class="app">
   <aside class="sidebar">
-    <div class="brand"><span class="logo">⚡</span><span>Fleet</span></div>
+    <div class="brand"><span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2.6"/><circle cx="6" cy="6" r="1.8"/><circle cx="18" cy="6" r="1.8"/><circle cx="12" cy="19.5" r="1.8"/><path d="M10.2 10.2 7.3 7.3M13.8 10.2l2.9-2.9M12 14.6v3.1"/></svg></span><span>Fleet</span></div>
     <nav class="nav">
       <button class="nav-item active" data-view="connections"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg><span>Connections</span><span class="nav-badge" id="navIssues"></span></button>
       <button class="nav-item" data-view="run"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5l7 7-7 7"/><path d="M13 19h7"/></svg><span>Run script</span></button>
@@ -268,7 +274,8 @@
           </div>
           <div class="sec-b">
             <div class="dropzone" id="ovpnDrop">
-              <span>⬆︎</span><span>Drop <b>.ovpn</b> profiles here, or click to choose</span>
+              <svg class="dz-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+              <span>Drop <b>.ovpn</b> profiles here, or click to choose</span>
               <input type="file" id="files" accept=".ovpn,.conf" multiple hidden>
             </div>
           </div>
@@ -286,7 +293,8 @@
               <button id="delScript" class="danger sm">Delete</button>
               <div class="divider"></div>
               <div class="dropzone" id="shDrop" style="flex:1;min-width:200px;padding:10px 14px">
-                <span>⬆︎</span><span>Drop <b>.sh</b> scripts here, or click</span>
+                <svg class="dz-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+                <span>Drop <b>.sh</b> scripts here, or click</span>
                 <input type="file" id="shfiles" accept=".sh" multiple hidden>
               </div>
             </div>
