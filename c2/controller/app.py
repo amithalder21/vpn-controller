@@ -190,11 +190,20 @@ def exec_in(name, command, timeout=60):
 
 
 def check_ip(name):
-    r = exec_in(name, "curl -s -m 15 https://ipinfo.io/json", timeout=20)
+    # ifconfig.co is used over ipinfo.io because the latter rate-limits (429)
+    # shared NAT exits quickly, blanking the IP for all but the first worker.
+    r = exec_in(name, "curl -s -m 15 https://ifconfig.co/json", timeout=20)
     info = {"checked": int(time.time())}
     try:
         data = json.loads(r["output"])
-        info.update({k: data.get(k) for k in ("ip", "city", "region", "country", "org")})
+        info.update({
+            "ip": data.get("ip"),
+            "city": data.get("city"),
+            "region": data.get("region_name"),
+            "country": data.get("country"),
+            "org": (f'{data["asn"]} {data.get("asn_org", "")}'.strip()
+                    if data.get("asn") else data.get("asn_org")),
+        })
     except (ValueError, TypeError):
         info["error"] = (r["output"] or "no response").strip()[:200]
     ip_cache[name] = info
