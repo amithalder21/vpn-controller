@@ -77,6 +77,10 @@ All `/api/*` calls need `X-Token: <CONTROL_TOKEN>`.
 | `POST /api/run`                     | stream a job: `{"script":"x.sh"}` or `{"body":"<shell>"}` + `targets`, `timeout`; returns a job id |
 | `GET  /api/jobs/<id>/stream`        | **SSE** live output of a job (replays + follows) |
 | `POST /api/jobs/<id>/cancel`        | kill that job's processes in the workers (TERM, then KILL) |
+| `GET/POST /api/settings`            | read / toggle auto-heal (`{"autoheal":true}`) |
+| `GET  /api/events`                  | recent activity (connects, auto-heals, renames…) |
+| `POST /api/profiles/<name>/tags`    | set tags (`{"tags":["eu","scraping"]}`) |
+| `POST /api/profiles/<name>/rename`  | rename a connection (`{"to":"new-name"}`) |
 | `GET  /api/workers/<name>/logs/stream` | **SSE** live gluetun logs                 |
 
 SSE endpoints can't send headers, so they take the token as `?token=<CONTROL_TOKEN>`.
@@ -95,6 +99,18 @@ curl -s -X POST -H "X-Token: $TOK" -H 'Content-Type: application/json' \
   -d '{"command":"curl -s https://ifconfig.co/json","targets":"all"}' \
   http://127.0.0.1:8088/api/exec | jq
 ```
+
+## Auto-heal
+
+A background watchdog reconnects connections that are meant to be up but have
+dropped or gone unhealthy. Each connection tracks a desired state (set when you
+Connect/Disconnect), so a manual Disconnect is never fought by the watchdog.
+Restarts are capped (`HEAL_MAX_RESTARTS` within `HEAL_WINDOW`); after that a
+connection is marked **needs attention** until you reconnect it. Toggle it from
+the header; set `WEBHOOK_URL` to receive a JSON POST on auto-heal / give-up.
+
+Tunables (env on the controller): `HEAL_INTERVAL` (20s), `HEAL_GRACE` (120s
+unhealthy tolerance), `HEAL_MAX_RESTARTS` (3), `HEAL_WINDOW` (900s).
 
 ## Security
 

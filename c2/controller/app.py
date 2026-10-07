@@ -38,9 +38,80 @@ NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 client = docker.from_env()
 pool = ThreadPoolExecutor(max_workers=32)
 rdb = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-ip_cache = {}  # profile -> {"ip":..., "country":..., "checked": epoch}
+ip_cache = {}        # profile -> {"ip":..., "country":..., "checked": epoch}
+stats_cache = {}     # profile -> {"cpu": %, "mem_mb": float}
+_stat_prev = {}      # profile -> (total_cpu, system_cpu)  for delta cpu%
+heal_state = {}      # profile -> {"restarts": int, "last": epoch, "gaveup": bool}
+unhealthy_since = {} # profile -> epoch when it first went unhealthy
+
+# Auto-heal tuning (env-overridable)
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
+HEAL_INTERVAL = int(os.environ.get("HEAL_INTERVAL", "20"))     # watchdog tick
+HEAL_GRACE = int(os.environ.get("HEAL_GRACE", "120"))         # unhealthy tolerance
+HEAL_MAX = int(os.environ.get("HEAL_MAX_RESTARTS", "3"))      # before giving up
+HEAL_WINDOW = int(os.environ.get("HEAL_WINDOW", "900"))       # restart-count window
 
 app = Flask(__name__, static_folder="static")
+
+
+# ---------- persistent fleet state (DragonflyDB) ----------
+
+def _rtry(fn, default=None):
+    try:
+        return fn()
+    except redis.RedisError:
+        return default
+
+def desired_get(name):
+    return _rtry(lambda: rdb.hget("mvpn:desired", name))
+
+def desired_set(name, val):
+    _rtry(lambda: rdb.hset("mvpn:desired", name, val))
+
+def desired_del(name):
+    _rtry(lambda: rdb.hdel("mvpn:desired", name))
+
+def tags_get(name):
+    raw = _rtry(lambda: rdb.hget("mvpn:tags", name))
+    try:
+        return json.loads(raw) if raw else []
+    except (ValueError, TypeError):
+        return []
+
+def tags_set(name, tags):
+    _rtry(lambda: rdb.hset("mvpn:tags", name, json.dumps(tags)))
+
+def tags_del(name):
+    _rtry(lambda: rdb.hdel("mvpn:tags", name))
+
+def setting_get(key, default):
+    v = _rtry(lambda: rdb.hget("mvpn:settings", key))
+    return default if v is None else v
+
+def setting_set(key, val):
+    _rtry(lambda: rdb.hset("mvpn:settings", key, val))
+
+def record_event(name, kind, detail=""):
+    _rtry(lambda: rdb.xadd("mvpn:events",
+          {"ts": str(int(time.time())), "name": name, "kind": kind, "detail": detail},
+          maxlen=1000, approximate=True))
+
+def heal_reset(name):
+    heal_state.pop(name, None)
+    unhealthy_since.pop(name, None)
+
+def alert(name, kind, detail=""):
+    if not WEBHOOK_URL:
+        return
+    import urllib.request
+    body = json.dumps({"name": name, "event": kind, "detail": detail,
+                       "ts": int(time.time())}).encode()
+    req = urllib.request.Request(WEBHOOK_URL, data=body,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, timeout=8).close()
+    except Exception:
+        pass
 
 
 # ---------- helpers ----------
@@ -113,6 +184,12 @@ def worker_status(name):
     if wapp:
         out["app"] = wapp.attrs["State"]["Status"]
     out["ipinfo"] = ip_cache.get(name)
+    out["stats"] = stats_cache.get(name)
+    out["desired"] = desired_get(name) or "down"
+    out["tags"] = tags_get(name)
+    hs = heal_state.get(name)
+    out["restarts"] = hs["restarts"] if hs else 0
+    out["gaveup"] = bool(hs and hs["gaveup"])
     return out
 
 
@@ -148,9 +225,24 @@ def create_worker(name):
     )
 
 
+def _bounce(name):
+    """Low-level restart used by the watchdog (no desired/heal bookkeeping)."""
+    vpn, wapp = get(name, "vpn"), get(name, "app")
+    if vpn is None:
+        if wapp:
+            wapp.remove(force=True)
+        create_worker(name)
+        return
+    vpn.restart(timeout=5)
+    if wapp:
+        wapp.restart(timeout=2)  # rebind to the vpn's fresh netns
+    ip_cache.pop(name, None)
+
+
 def start_worker(name):
     if not os.path.exists(profile_path(name)):
         abort(404, f"no profile {name}")
+    desired_set(name, "up"); heal_reset(name); record_event(name, "connect")
     vpn, wapp = get(name, "vpn"), get(name, "app")
     if not vpn:
         if wapp:  # orphaned app container without its network owner
@@ -159,11 +251,11 @@ def start_worker(name):
         return
     vpn.start()
     if wapp:
-        # app shares the vpn netns; restart it so it binds to the live one
         wapp.restart(timeout=2)
 
 
 def stop_worker(name):
+    desired_set(name, "down"); heal_reset(name); record_event(name, "disconnect")
     for role in ("app", "vpn"):
         c = get(name, role)
         if c:
@@ -171,13 +263,8 @@ def stop_worker(name):
 
 
 def restart_worker(name):
-    vpn, wapp = get(name, "vpn"), get(name, "app")
-    if not vpn:
-        return start_worker(name)
-    vpn.restart(timeout=5)
-    if wapp:
-        wapp.restart(timeout=2)
-    ip_cache.pop(name, None)
+    desired_set(name, "up"); heal_reset(name); record_event(name, "reconnect")
+    _bounce(name)
 
 
 def remove_worker(name):
@@ -185,7 +272,9 @@ def remove_worker(name):
         c = get(name, role)
         if c:
             c.remove(force=True)
-    ip_cache.pop(name, None)
+    desired_del(name); heal_reset(name)
+    ip_cache.pop(name, None); stats_cache.pop(name, None); _stat_prev.pop(name, None)
+    record_event(name, "removed")
 
 
 def exec_in(name, command, timeout=60):
@@ -624,7 +713,155 @@ def api_logs_stream(name):
     return sse(container_log_events(name, tail))
 
 
+# ---- settings (auto-heal) & activity ----
+
+@app.get("/api/settings")
+def api_get_settings():
+    return jsonify(autoheal=setting_get("autoheal", "1") == "1",
+                   webhook=bool(WEBHOOK_URL))
+
+
+@app.post("/api/settings")
+def api_set_settings():
+    body = request.get_json(silent=True) or {}
+    if "autoheal" in body:
+        setting_set("autoheal", "1" if body["autoheal"] else "0")
+        record_event("-", "autoheal-" + ("on" if body["autoheal"] else "off"))
+    return api_get_settings()
+
+
+@app.get("/api/events")
+def api_events():
+    limit = min(int(request.args.get("limit", 60)), 500)
+    try:
+        rows = rdb.xrevrange("mvpn:events", count=limit)
+    except redis.RedisError:
+        rows = []
+    return jsonify([{**f, "id": i} for i, f in rows])
+
+
+# ---- tags & rename ----
+
+@app.post("/api/profiles/<name>/tags")
+def api_set_tags(name):
+    name = clean_name(name)
+    body = request.get_json(silent=True) or {}
+    tags = [str(t).strip()[:24] for t in (body.get("tags") or []) if str(t).strip()]
+    tags_set(name, sorted(set(tags)))
+    return jsonify(name=name, tags=tags_get(name))
+
+
+@app.post("/api/profiles/<name>/rename")
+def api_rename(name):
+    name = clean_name(name)
+    body = request.get_json(silent=True) or {}
+    new = clean_name(body.get("to") or "")
+    if not os.path.exists(profile_path(name)):
+        abort(404, f"no profile {name}")
+    if os.path.exists(profile_path(new)):
+        abort(400, f"name {new} already exists")
+    remove_worker(name)                       # containers recreated under new name
+    os.rename(profile_path(name), profile_path(new))
+    if tags_get(name):
+        tags_set(new, tags_get(name)); tags_del(name)
+    record_event(new, "renamed", f"from {name}")
+    return jsonify(renamed={"from": name, "to": new})
+
+
+# ---------- background workers ----------
+
+def _heal(name, reason):
+    hs = heal_state.setdefault(name, {"restarts": 0, "last": 0, "gaveup": False})
+    now = time.time()
+    if now - hs["last"] > HEAL_WINDOW:
+        hs["restarts"] = 0
+    if hs["restarts"] >= HEAL_MAX:
+        if not hs["gaveup"]:
+            hs["gaveup"] = True
+            record_event(name, "gaveup", reason)
+            alert(name, "gaveup", reason)
+        return
+    hs["restarts"] += 1
+    hs["last"] = now
+    unhealthy_since.pop(name, None)
+    try:
+        _bounce(name)
+        record_event(name, "autoheal", f"{reason} (#{hs['restarts']})")
+        alert(name, "autoheal", reason)
+    except Exception as e:
+        record_event(name, "heal-error", str(e)[:120])
+
+
+def _heal_once():
+    if setting_get("autoheal", "1") != "1":
+        return
+    for name in list_profiles():
+        if desired_get(name) != "up":
+            continue
+        hs = heal_state.get(name)
+        if hs and hs["gaveup"]:
+            continue
+        vpn = get(name, "vpn")
+        try:
+            if vpn is None:
+                _heal(name, "missing")
+                continue
+            vpn.reload()
+            state = vpn.attrs["State"]
+            status = state["Status"]
+            health = (state.get("Health") or {}).get("Status")
+            if status != "running":
+                _heal(name, "stopped")
+            elif health == "unhealthy":
+                since = unhealthy_since.setdefault(name, time.time())
+                if time.time() - since >= HEAL_GRACE:
+                    _heal(name, "unhealthy")
+            else:
+                unhealthy_since.pop(name, None)
+        except Exception:
+            continue
+
+
+def _cpu_pct(name, s):
+    cs = s.get("cpu_stats", {})
+    tot = cs.get("cpu_usage", {}).get("total_usage", 0)
+    sysu = cs.get("system_cpu_usage", 0)
+    ncpu = cs.get("online_cpus") or len(cs.get("cpu_usage", {}).get("percpu_usage") or [1]) or 1
+    prev = _stat_prev.get(name)
+    _stat_prev[name] = (tot, sysu)
+    if not prev:
+        return 0.0
+    cd, sd = tot - prev[0], sysu - prev[1]
+    return round((cd / sd) * ncpu * 100, 1) if sd > 0 and cd > 0 else 0.0
+
+
+def _stats_once():
+    for name in list_profiles():
+        wapp = get(name, "app")
+        if not wapp or wapp.status != "running":
+            stats_cache.pop(name, None)
+            _stat_prev.pop(name, None)
+            continue
+        try:
+            s = wapp.stats(stream=False)
+            mem = s.get("memory_stats", {}).get("usage", 0)
+            stats_cache[name] = {"cpu": _cpu_pct(name, s), "mem_mb": round(mem / 1048576, 1)}
+        except Exception:
+            continue
+
+
+def _loop(fn, interval):
+    while True:
+        try:
+            fn()
+        except Exception:
+            pass
+        time.sleep(interval)
+
+
 if __name__ == "__main__":
     os.makedirs(PROFILES_DIR, exist_ok=True)
     os.makedirs(SCRIPTS_DIR, exist_ok=True)
+    threading.Thread(target=_loop, args=(_heal_once, HEAL_INTERVAL), daemon=True).start()
+    threading.Thread(target=_loop, args=(_stats_once, 8), daemon=True).start()
     app.run(host="0.0.0.0", port=8080, threaded=True)

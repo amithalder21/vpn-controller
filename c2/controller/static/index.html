@@ -109,12 +109,44 @@
   .seg input:checked + label { background: var(--accent); color: #fff; }
   .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .divider { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
+
+  /* toggle switch */
+  .switch { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none; }
+  .switch input { display: none; }
+  .track { width: 34px; height: 19px; border-radius: 99px; background: var(--line); position: relative; transition: background .15s; flex: none; }
+  .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+  .switch input:checked + .track { background: var(--ok); }
+  .switch input:checked + .track::after { left: 17px; }
+
+  /* tag chips */
+  .tags { display: inline-flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 3px; }
+  .tag-chip { font-size: 10.5px; padding: 1px 7px; border-radius: 99px; background: var(--accent-weak); color: var(--accent); font-weight: 550; cursor: pointer; }
+  .tag-chip:hover { filter: brightness(.95); }
+  .tag-add { font-size: 11px; color: var(--muted); border: 1px dashed var(--line); border-radius: 99px; padding: 0 6px; cursor: pointer; background: none; }
+  .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .attn { font-size: 10.5px; color: var(--bad); background: var(--bad-bg); padding: 1px 7px; border-radius: 99px; font-weight: 600; }
+
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line2); background: var(--panel2); }
+  .filters input, .filters select { padding: 6px 9px; font-size: 13px; background: var(--panel); }
+  .chips { display: inline-flex; gap: 4px; }
+  .chip-btn { font-size: 12.5px; padding: 5px 11px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; color: var(--muted); }
+  .chip-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .feed { max-height: 280px; overflow: auto; }
+  .ev { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line2); font-size: 12.5px; }
+  .ev:last-child { border-bottom: none; }
+  .ev .t { color: var(--muted); font-size: 11.5px; width: 62px; flex: none; font-variant-numeric: tabular-nums; }
+  .ev .k { font-weight: 600; width: 92px; flex: none; }
+  .ev .k.autoheal { color: var(--warn); } .ev .k.gaveup { color: var(--bad); } .ev .k.connect, .ev .k.reconnect { color: var(--ok); }
 </style>
 </head>
 <body>
 <header>
   <div class="brand"><span class="logo">⚡</span> VPN Fleet Control</div>
   <span class="sp"></span>
+  <label class="switch" title="Automatically reconnect dropped or unhealthy connections">
+    <input type="checkbox" id="autoheal"><span class="track"></span><span>Auto-heal</span>
+  </label>
   <span class="conn" id="conn"><span class="dot wait"></span><span id="connText">connecting…</span></span>
   <button id="settingsBtn" class="ghost" title="Token">⚙︎</button>
 </header>
@@ -150,6 +182,17 @@
         <button data-bulk="restart" class="sm">Reconnect</button>
         <button data-bulk="stop" class="sm">Disconnect</button>
       </div>
+    </div>
+    <div class="filters">
+      <input type="text" id="search" placeholder="Search name, IP, country, org…" style="flex:1;min-width:180px">
+      <div class="chips" id="statusChips">
+        <button class="chip-btn on" data-status="all">All</button>
+        <button class="chip-btn" data-status="connected">Connected</button>
+        <button class="chip-btn" data-status="issues">Issues</button>
+        <button class="chip-btn" data-status="offline">Offline</button>
+      </div>
+      <select id="tagFilter"><option value="">all tags</option></select>
+      <button id="selectFiltered" class="ghost sm">Select filtered</button>
     </div>
     <div class="table-wrap">
       <table>
@@ -232,6 +275,12 @@
     </div>
     <div class="sec-b"><pre id="logs"></pre></div>
   </section>
+
+  <!-- activity -->
+  <section>
+    <div class="sec-h"><h2>Activity</h2><span class="sp"></span><span class="count-chip">auto-heal &amp; actions</span></div>
+    <div class="sec-b"><div id="feed" class="feed"><div class="empty">No activity yet.</div></div></div>
+  </section>
 </main>
 <div id="toasts"></div>
 
@@ -275,6 +324,25 @@ async function api(method, path, body, isForm) {
 
 /* ---------- workers ---------- */
 let profiles = {}, selected = new Set(), lastWorkers = [];
+let filterText = '', filterStatus = 'all', filterTag = '';
+
+function matchStatus(w) {
+  const running = w.exists && w.vpn === 'running';
+  if (filterStatus === 'connected') return running && w.health === 'healthy';
+  if (filterStatus === 'issues') return w.gaveup || (w.exists && (!running || w.health === 'unhealthy'));
+  if (filterStatus === 'offline') return !running;
+  return true;
+}
+function matchFilters(w) {
+  if (!matchStatus(w)) return false;
+  if (filterTag && !(w.tags || []).includes(filterTag)) return false;
+  if (filterText) {
+    const ip = w.ipinfo || {}, hay = [w.name, ip.ip, ip.city, ip.country, ip.org, ...(w.tags || [])].join(' ').toLowerCase();
+    if (!hay.includes(filterText)) return false;
+  }
+  return true;
+}
+function filteredWorkers() { return lastWorkers.filter(matchFilters); }
 
 function updateSelCount() {
   const n = selected.size;
@@ -289,9 +357,10 @@ async function refresh() {
     const [plist, workers] = await Promise.all([api('GET', '/api/profiles'), api('GET', '/api/workers')]);
     profiles = Object.fromEntries(plist.map(p => [p.name, p]));
     lastWorkers = workers;
-    render(workers);
+    render();
     renderStats(plist, workers);
     setConn('live', 'connected');
+    refreshFeed();
   } catch (e) {
     if (e.status === 401) { setConn('err', 'bad / missing token'); $('#workers').replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'empty' }, 'Enter your control token (⚙︎) to connect.'))); }
     else { setConn('err', 'offline'); }
@@ -318,11 +387,21 @@ function statusPill(w) {
   return el('span', { class: 'pill ' + cls }, el('span', { class: 'd' }), label);
 }
 
-function render(workers) {
+function populateTagFilter() {
+  const all = new Set(); lastWorkers.forEach(w => (w.tags || []).forEach(t => all.add(t)));
+  const sel = $('#tagFilter'), cur = sel.value;
+  sel.replaceChildren(el('option', { value: '' }, 'all tags'), ...[...all].sort().map(t => el('option', { value: t }, '#' + t)));
+  sel.value = cur;
+}
+
+function render() {
+  populateTagFilter();
   const tb = $('#workers');
-  if (!workers.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'empty' }, 'No connections yet — drop .ovpn files below to add one.'))); updateSelCount(); return; }
-  tb.replaceChildren(...workers.map(w => {
-    const p = profiles[w.name] || {}, ip = w.ipinfo || {};
+  if (!lastWorkers.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'empty' }, 'No connections yet — drop .ovpn files below to add one.'))); updateSelCount(); return; }
+  const rows = filteredWorkers();
+  if (!rows.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'empty' }, 'No connections match the current filter.'))); updateSelCount(); syncSelAll(); return; }
+  tb.replaceChildren(...rows.map(w => {
+    const p = profiles[w.name] || {}, ip = w.ipinfo || {}, st = w.stats;
     const box = el('input', { type: 'checkbox', class: 'chk' }); box.checked = selected.has(w.name);
     box.addEventListener('change', () => { box.checked ? selected.add(w.name) : selected.delete(w.name); updateSelCount(); syncSelAll(); });
     const loc = ip.error ? el('span', { class: 'bad' }, ip.error.slice(0, 48))
@@ -333,11 +412,20 @@ function render(workers) {
     const iconBtn = (label, title, fn, cls = 'ghost sm') => el('button', { class: cls, title, onclick: async ev => {
       ev.target.disabled = true; try { await fn(); } catch (e) { toast(w.name + ': ' + e.message, 'err'); } ev.target.disabled = false; refresh();
     } }, label);
-    return el('tr', {},
-      el('td', {}, box),
-      el('td', {}, el('div', { style: 'font-weight:550' }, w.name)),
+    // tags row
+    const tagEls = (w.tags || []).map(t => el('span', { class: 'tag-chip', title: 'filter by #' + t, onclick: () => { $('#tagFilter').value = t; filterTag = t; render(); } }, '#' + t));
+    const tagsRow = el('div', { class: 'tags' }, ...tagEls,
+      el('button', { class: 'tag-add', title: 'Edit tags', onclick: () => editTags(w) }, '＋'));
+    const nameCell = el('td', {}, el('div', { style: 'font-weight:550' }, w.name),
+      w.gaveup ? el('span', { class: 'attn', title: 'Auto-heal gave up — reconnect to retry' }, 'needs attention') : '', tagsRow);
+    // status cell with cpu/mem + restarts
+    const meta = [];
+    if (running && st) meta.push(`${st.cpu}% cpu · ${st.mem_mb}MB`);
+    if (w.restarts) meta.push(`↻${w.restarts}`);
+    const statusCell = el('td', {}, statusPill(w), meta.length ? el('div', { class: 'meta' }, meta.join('  ')) : '');
+    return el('tr', {}, el('td', {}, box), nameCell,
       el('td', { class: 'mono muted' }, `${p.remote || '?'}`, el('div', { style: 'font-size:11px;opacity:.8' }, (p.proto || '').toUpperCase())),
-      el('td', {}, statusPill(w)),
+      statusCell,
       el('td', { class: 'mono' }, ip.ip || ''),
       el('td', {}, loc),
       el('td', { style: 'text-align:right' }, el('div', { class: 'btn-row', style: 'justify-content:flex-end' },
@@ -346,6 +434,7 @@ function render(workers) {
         iconBtn('Reconnect', 'Restart this connection', () => api('POST', `/api/workers/${w.name}/restart`)),
         iconBtn('IP', 'Check exit IP', () => api('POST', `/api/workers/${w.name}/ip`)),
         el('button', { class: 'ghost sm', title: 'Live logs', onclick: () => streamLogs(w.name) }, 'Logs'),
+        iconBtn('✎', 'Rename', () => renameConn(w.name), 'ghost sm'),
         iconBtn('🗑', 'Delete this connection (profile + containers)',
           () => confirm(`Delete connection “${w.name}”?\nThis removes its profile and containers.`) && api('DELETE', `/api/profiles/${w.name}`), 'danger sm'),
       )),
@@ -353,13 +442,64 @@ function render(workers) {
   }));
   updateSelCount(); syncSelAll();
 }
+async function editTags(w) {
+  const cur = (w.tags || []).join(', ');
+  const val = prompt(`Tags for “${w.name}” (comma-separated):`, cur);
+  if (val === null) return;
+  const tags = val.split(',').map(t => t.trim()).filter(Boolean);
+  try { await api('POST', `/api/profiles/${w.name}/tags`, { tags }); toast('Tags updated', 'ok'); } catch (e) { toast(e.message, 'err'); }
+  refresh();
+}
+async function renameConn(name) {
+  const to = prompt(`Rename “${name}” to:`, name);
+  if (!to || to === name) return;
+  try { await api('POST', `/api/profiles/${name}/rename`, { to }); selected.delete(name); toast(`Renamed to ${to}`, 'ok'); } catch (e) { toast(e.message, 'err'); }
+  refresh();
+}
 function syncSelAll() {
   const names = Object.keys(profiles);
   $('#selAll').checked = names.length > 0 && names.every(n => selected.has(n));
 }
 $('#selAll').addEventListener('change', e => {
-  selected = e.target.checked ? new Set(Object.keys(profiles)) : new Set();
-  render(lastWorkers);
+  const shown = filteredWorkers().map(w => w.name);
+  if (e.target.checked) shown.forEach(n => selected.add(n)); else shown.forEach(n => selected.delete(n));
+  render();
+});
+
+/* filters */
+$('#search').addEventListener('input', e => { filterText = e.target.value.trim().toLowerCase(); render(); });
+$('#tagFilter').addEventListener('change', e => { filterTag = e.target.value; render(); });
+$('#statusChips').addEventListener('click', e => {
+  const b = e.target.closest('[data-status]'); if (!b) return;
+  filterStatus = b.dataset.status;
+  [...$('#statusChips').children].forEach(c => c.classList.toggle('on', c === b));
+  render();
+});
+$('#selectFiltered').onclick = () => { filteredWorkers().forEach(w => selected.add(w.name)); render(); toast('Selected ' + selected.size + ' connection(s)', 'ok', 1500); };
+
+/* activity feed */
+async function refreshFeed() {
+  try {
+    const evs = await api('GET', '/api/events?limit=50');
+    const feed = $('#feed');
+    if (!evs.length) { feed.replaceChildren(el('div', { class: 'empty' }, 'No activity yet.')); return; }
+    feed.replaceChildren(...evs.map(e => {
+      const t = new Date((+e.ts) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return el('div', { class: 'ev' }, el('span', { class: 't' }, t),
+        el('span', { class: 'k ' + e.kind }, e.kind),
+        el('span', { class: 'mono', style: 'min-width:90px' }, e.name === '-' ? '' : e.name),
+        el('span', { class: 'muted' }, e.detail || ''));
+    }));
+  } catch (e) {}
+}
+
+/* auto-heal toggle */
+async function loadSettings() {
+  try { const s = await api('GET', '/api/settings'); $('#autoheal').checked = s.autoheal; } catch (e) {}
+}
+$('#autoheal').addEventListener('change', async e => {
+  try { await api('POST', '/api/settings', { autoheal: e.target.checked }); toast('Auto-heal ' + (e.target.checked ? 'on' : 'off'), 'ok', 1500); }
+  catch (err) { toast(err.message, 'err'); e.target.checked = !e.target.checked; }
 });
 
 /* ---------- bulk ---------- */
@@ -520,7 +660,7 @@ $('#saveToken').onclick = () => {
 if (!token) $('#settings').style.display = '';
 
 /* ---------- boot ---------- */
-refresh(); refreshScripts();
+refresh(); refreshScripts(); loadSettings();
 setInterval(refresh, 5000);
 </script>
 </body>
