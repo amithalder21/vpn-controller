@@ -157,9 +157,15 @@
   .ev { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--line2); font-size: 12.5px; }
   .ev:last-child { border-bottom: none; }
   .ev .t { color: var(--muted); font-size: 11.5px; width: 82px; flex: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .ev .k { font-weight: 600; width: 92px; flex: none; }
-  .ev .k.autoheal { color: var(--warn); } .ev .k.gaveup { color: var(--bad); } .ev .k.connect, .ev .k.reconnect { color: var(--ok); }
+  .ev .k { font-weight: 600; width: 110px; flex: none; }
+  .ev .k .kpill { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 99px; background: var(--panel2); color: var(--muted); }
+  .ev .k.autoheal .kpill { color: var(--warn); background: var(--warn-bg); }
+  .ev .k.gaveup .kpill, .ev .k.heal-error .kpill { color: var(--bad); background: var(--bad-bg); }
+  .ev .k.connect .kpill, .ev .k.reconnect .kpill, .ev .k.renamed .kpill { color: var(--ok); background: var(--ok-bg); }
+  .ev .nm { flex: none; width: 150px; }
   .empty { text-align: center; color: var(--muted); padding: 30px 10px; }
+
+  .selbar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line2); background: var(--accent-weak); }
 
   /* logs drawer */
   .drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(620px, 94vw); background: var(--panel); border-left: 1px solid var(--line); box-shadow: -12px 0 40px rgba(16,24,40,.18); z-index: 70; display: flex; flex-direction: column; animation: slideL .18s ease; }
@@ -215,14 +221,22 @@
         <section class="panel">
           <div class="sec-h">
             <h2>Connections</h2>
-            <span class="count-chip" id="selCount"></span>
             <span class="sp"></span>
             <div class="btn-row">
               <button data-bulk="start" class="primary sm">Connect all</button>
               <button data-bulk="ip" class="sm">Check IPs</button>
-              <button data-bulk="restart" class="sm">Reconnect</button>
-              <button data-bulk="stop" class="sm">Disconnect</button>
             </div>
+          </div>
+          <div class="selbar" id="selBar" style="display:none">
+            <span id="selCount" class="count-chip" style="font-weight:600;color:var(--text)"></span>
+            <div class="btn-row">
+              <button data-selact="start" class="primary sm">Connect</button>
+              <button data-selact="restart" class="sm">Reconnect</button>
+              <button data-selact="stop" class="sm">Disconnect</button>
+              <button id="selRun" class="sm">Run script…</button>
+            </div>
+            <span class="sp"></span>
+            <button id="selClear" class="ghost sm">Clear selection</button>
           </div>
           <div class="filters">
             <input type="text" id="search" placeholder="Search name, IP, country, org…" style="flex:1;min-width:180px">
@@ -322,8 +336,18 @@
           <div class="sec-b muted" style="font-size:13px;line-height:1.6">
             When enabled, a background watchdog reconnects connections that are meant to be up but have
             dropped or gone unhealthy. Manual <b>Disconnect</b> is always respected. After repeated
-            failures a connection is flagged <b>needs attention</b> until you reconnect it. Set
-            <span class="mono">WEBHOOK_URL</span> on the controller to receive alerts.
+            failures a connection is flagged <b>needs attention</b> until you reconnect it.
+            <div style="margin-top:8px">Alerts webhook: <span id="webhookStatus" class="pill muted"><span class="d"></span>not set</span>
+              <span style="margin-left:6px">— set <span class="mono">WEBHOOK_URL</span> on the controller to enable.</span>
+            </div>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="sec-h"><h2>About</h2></div>
+          <div class="sec-b muted" style="font-size:13px;line-height:1.7">
+            <div>VPN Fleet Control — manage N OpenVPN tunnels from one place.</div>
+            <div>Each connection is an isolated tunnel; run scripts across the fleet and stream output live.</div>
+            <div style="margin-top:6px"><a href="https://github.com/amithalder21/vpn-controller" target="_blank" rel="noopener">github.com/amithalder21/vpn-controller</a></div>
           </div>
         </section>
       </section>
@@ -375,6 +399,13 @@ function toast(msg, kind = 'info', ms = 4200) {
 function flag(iso) {
   if (!iso || iso.length !== 2) return '';
   return String.fromCodePoint(...[...iso.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
+}
+function uptime(iso) {
+  if (!iso) return '';
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (!isFinite(s) || s < 0) return '';
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  if (d) return `up ${d}d ${h}h`; if (h) return `up ${h}h ${m}m`; if (m) return `up ${m}m`; return 'up <1m';
 }
 function setConn(state, text) { $('#conn').firstElementChild.className = 'dot ' + state; $('#connText').textContent = text; }
 async function api(method, path, body, isForm) {
@@ -444,10 +475,14 @@ function filteredWorkers() { return lastWorkers.filter(matchFilters); }
 
 function updateSelCount() {
   const n = selected.size;
+  $('#selBar').style.display = n ? 'flex' : 'none';
   $('#selCount').textContent = n ? `${n} selected` : '';
   $('#runTarget').textContent = $('#scriptSel').value
     ? `script → ${n ? n + ' selected' : 'all connected'}`
     : `target → ${n ? n + ' selected' : 'all connected'}`;
+  const rs = $('#runSel'); rs.textContent = n ? `Run on ${n} selected` : 'Run on selected'; rs.disabled = !n;
+  rs.classList.toggle('primary', n > 0);
+  $('#runAll').classList.toggle('primary', n === 0);
 }
 
 async function refresh() {
@@ -522,10 +557,10 @@ function render() {
     else if (ip.ip) exitCell = el('td', {},
       el('div', {}, flag(ip.country_iso) ? el('span', { class: 'flag' }, flag(ip.country_iso)) : '', [ip.city, ip.country].filter(Boolean).join(', ') || '—'),
       el('div', { class: 'csub mono' }, ip.ip));
-    else exitCell = el('td', {}, el('span', { class: 'muted' }, running ? 'checking…' : '—'));
+    else exitCell = el('td', {}, el('span', { class: 'muted' }, (running && w.health !== 'unhealthy') ? 'checking…' : '—'));
 
     const meta = [];
-    if (running && st) meta.push(`${st.cpu}% · ${st.mem_mb}MB`);
+    if (running) { const up = uptime(w.started_at); if (up) meta.push(up); }
     if (w.restarts) meta.push(`↻${w.restarts}`);
     const statusCell = el('td', {}, statusPill(w), meta.length ? el('div', { class: 'csub' }, meta.join('  ')) : '');
 
@@ -592,8 +627,8 @@ async function refreshFeed() {
     feed.replaceChildren(...evs.map(e => {
       const t = new Date((+e.ts) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       return el('div', { class: 'ev' }, el('span', { class: 't' }, t),
-        el('span', { class: 'k ' + e.kind }, e.kind),
-        el('span', { class: 'mono', style: 'min-width:90px' }, e.name === '-' ? '' : e.name),
+        el('span', { class: 'k ' + e.kind }, el('span', { class: 'kpill' }, e.kind)),
+        el('span', { class: 'nm mono' }, e.name === '-' ? '' : e.name),
         el('span', { class: 'muted' }, e.detail || ''));
     }));
   } catch (e) {}
@@ -601,7 +636,12 @@ async function refreshFeed() {
 
 /* auto-heal (two toggles kept in sync: sidebar + settings) */
 async function loadSettings() {
-  try { const s = await api('GET', '/api/settings'); $('#autoheal').checked = s.autoheal; $('#autoheal2').checked = s.autoheal; } catch (e) {}
+  try {
+    const s = await api('GET', '/api/settings');
+    $('#autoheal').checked = s.autoheal; $('#autoheal2').checked = s.autoheal;
+    const ws = $('#webhookStatus');
+    if (ws) { ws.className = 'pill ' + (s.webhook ? 'ok' : 'muted'); ws.replaceChildren(el('span', { class: 'd' }), s.webhook ? 'configured' : 'not set'); }
+  } catch (e) {}
 }
 async function setAutoheal(on, src) {
   try { await api('POST', '/api/settings', { autoheal: on }); $('#autoheal').checked = on; $('#autoheal2').checked = on; toast('Auto-heal ' + (on ? 'on' : 'off'), 'ok', 1500); }
@@ -611,18 +651,21 @@ $('#autoheal').addEventListener('change', e => setAutoheal(e.target.checked, e.t
 $('#autoheal2').addEventListener('change', e => setAutoheal(e.target.checked, e.target));
 
 /* bulk */
-document.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click', async () => {
-  const action = b.dataset.bulk;
-  b.disabled = true;
+async function doBulk(action, useSelection, btn) {
+  if (btn) btn.disabled = true;
   try {
-    const r = await api('POST', `/api/bulk/${action}`, selected.size ? { targets: [...selected] } : {});
+    const r = await api('POST', `/api/bulk/${action}`, useSelection && selected.size ? { targets: [...selected] } : {});
     const errs = Object.entries(r).filter(([, v]) => v && v.error && action !== 'ip');
     const verb = { start: 'Connected', stop: 'Disconnected', restart: 'Reconnected', ip: 'Checked' }[action] || 'Done';
     errs.length ? toast(errs.map(([k, v]) => `${k}: ${v.error}`).join('\n'), 'err')
                 : toast(`${verb} · ${Object.keys(r).length} connection(s)`, 'ok');
   } catch (e) { toast(e.message, 'err'); }
-  b.disabled = false; refresh();
-}));
+  if (btn) btn.disabled = false; refresh();
+}
+document.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click', () => doBulk(b.dataset.bulk, false, b)));
+document.querySelectorAll('[data-selact]').forEach(b => b.addEventListener('click', () => doBulk(b.dataset.selact, true, b)));
+$('#selClear').onclick = () => { selected.clear(); render(); };
+$('#selRun').onclick = () => go('run');
 
 /* uploads */
 function wireDrop(zoneId, inputId, onFiles) {
