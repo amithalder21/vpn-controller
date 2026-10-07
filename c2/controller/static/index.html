@@ -50,7 +50,7 @@
 
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line2); vertical-align: middle; }
-  thead th { font-size: 11.5px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; position: sticky; top: 57px; background: var(--panel); z-index: 2; }
+  thead th { font-size: 11.5px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; background: var(--panel); }
   tbody tr:hover { background: var(--panel2); }
   tbody tr:last-child td { border-bottom: none; }
   td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
@@ -132,31 +132,30 @@
 
   <!-- fleet summary -->
   <div class="stats">
-    <div class="stat"><div class="n" id="stProfiles">—</div><div class="l">Profiles</div></div>
-    <div class="stat"><div class="n" id="stRunning">—</div><div class="l">Workers running</div></div>
-    <div class="stat"><div class="n" id="stHealthy">—</div><div class="l">Tunnels healthy</div></div>
+    <div class="stat"><div class="n" id="stProfiles">—</div><div class="l">Connections</div></div>
+    <div class="stat"><div class="n" id="stRunning">—</div><div class="l">Online</div></div>
+    <div class="stat"><div class="n" id="stHealthy">—</div><div class="l">Connected</div></div>
     <div class="stat"><div class="n" id="stCountries">—</div><div class="l">Exit countries</div></div>
   </div>
 
   <!-- workers -->
   <section>
     <div class="sec-h">
-      <h2>Workers</h2>
+      <h2>Connections</h2>
       <span class="count-chip" id="selCount"></span>
       <span class="sp"></span>
       <div class="btn-row">
-        <button data-bulk="start" class="primary sm">Start all</button>
+        <button data-bulk="start" class="primary sm">Connect all</button>
         <button data-bulk="ip" class="sm">Check IPs</button>
-        <button data-bulk="restart" class="sm">Restart</button>
-        <button data-bulk="stop" class="sm">Stop</button>
-        <button data-bulk="remove" class="danger sm">Remove</button>
+        <button data-bulk="restart" class="sm">Reconnect</button>
+        <button data-bulk="stop" class="sm">Disconnect</button>
       </div>
     </div>
     <div class="table-wrap">
       <table>
         <thead><tr>
           <th style="width:28px"><input type="checkbox" id="selAll" class="chk"></th>
-          <th>Profile</th><th>Server</th><th>Tunnel</th><th>Exit IP</th><th>Location</th><th style="text-align:right">Actions</th>
+          <th>Name</th><th>Server</th><th>Status</th><th>Exit IP</th><th>Location</th><th style="text-align:right">Actions</th>
         </tr></thead>
         <tbody id="workers"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
       </table>
@@ -190,7 +189,7 @@
       <textarea id="cmd" spellcheck="false" placeholder="#!/bin/bash&#10;curl -s https://ifconfig.co/json">curl -s https://ifconfig.co/country-iso</textarea>
       <div class="toolbar">
         <button id="runSel" class="primary">Run on selected</button>
-        <button id="runAll">Run on all running</button>
+        <button id="runAll">Run on all connected</button>
         <span class="kbd">⌘/Ctrl + Enter</span>
         <div class="divider"></div>
         <label class="muted" style="font-size:12.5px">timeout <input id="timeout" type="number" value="300" min="1" max="3600" style="width:78px"> s</label>
@@ -281,8 +280,8 @@ function updateSelCount() {
   const n = selected.size;
   $('#selCount').textContent = n ? `${n} selected` : '';
   $('#runTarget').textContent = $('#scriptSel').value
-    ? `script → ${n || 'all running'} worker${n === 1 ? '' : 's'}`
-    : `target → ${n ? n + ' selected' : 'all running'}`;
+    ? `script → ${n ? n + ' selected' : 'all connected'}`
+    : `target → ${n ? n + ' selected' : 'all connected'}`;
 }
 
 async function refresh() {
@@ -309,42 +308,46 @@ function renderStats(plist, workers) {
   $('#stCountries').textContent = countries.size || '—';
 }
 
-function tunnelPill(w) {
-  if (!w.exists) return el('span', { class: 'pill muted' }, el('span', { class: 'd' }), 'not started');
-  if (w.vpn !== 'running') return el('span', { class: 'pill bad' }, el('span', { class: 'd' }), w.vpn || 'missing');
-  const h = w.health, cls = h === 'healthy' ? 'ok' : h === 'unhealthy' ? 'bad' : 'warn';
-  return el('span', { class: 'pill ' + cls }, el('span', { class: 'd' }), h || 'running');
+function statusPill(w) {
+  let cls = 'muted', label = 'Offline';
+  if (!w.exists) { cls = 'muted'; label = 'Offline'; }
+  else if (w.vpn !== 'running') { cls = 'muted'; label = w.vpn === 'exited' ? 'Disconnected' : 'Stopped'; }
+  else if (w.health === 'healthy') { cls = 'ok'; label = 'Connected'; }
+  else if (w.health === 'unhealthy') { cls = 'bad'; label = 'Error'; }
+  else { cls = 'warn'; label = 'Connecting'; }
+  return el('span', { class: 'pill ' + cls }, el('span', { class: 'd' }), label);
 }
 
 function render(workers) {
   const tb = $('#workers');
-  if (!workers.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'empty' }, 'No profiles yet — drop .ovpn files below to begin.'))); updateSelCount(); return; }
+  if (!workers.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'empty' }, 'No connections yet — drop .ovpn files below to add one.'))); updateSelCount(); return; }
   tb.replaceChildren(...workers.map(w => {
     const p = profiles[w.name] || {}, ip = w.ipinfo || {};
     const box = el('input', { type: 'checkbox', class: 'chk' }); box.checked = selected.has(w.name);
     box.addEventListener('change', () => { box.checked ? selected.add(w.name) : selected.delete(w.name); updateSelCount(); syncSelAll(); });
-    const act = (label, fn, cls = 'ghost sm') => el('button', { class: cls, onclick: async ev => {
-      ev.target.disabled = true; try { await fn(); } catch (e) { toast(w.name + ': ' + e.message, 'err'); } ev.target.disabled = false; refresh();
-    } }, label);
     const loc = ip.error ? el('span', { class: 'bad' }, ip.error.slice(0, 48))
       : el('span', {}, flag(ip.country_iso) ? el('span', { class: 'flag' }, flag(ip.country_iso)) : '',
           [ip.city, ip.country].filter(Boolean).join(', '),
           ip.org ? el('div', { class: 'muted', style: 'font-size:11.5px' }, ip.org) : '');
     const running = w.exists && w.vpn === 'running';
+    const iconBtn = (label, title, fn, cls = 'ghost sm') => el('button', { class: cls, title, onclick: async ev => {
+      ev.target.disabled = true; try { await fn(); } catch (e) { toast(w.name + ': ' + e.message, 'err'); } ev.target.disabled = false; refresh();
+    } }, label);
     return el('tr', {},
       el('td', {}, box),
       el('td', {}, el('div', { style: 'font-weight:550' }, w.name)),
       el('td', { class: 'mono muted' }, `${p.remote || '?'}`, el('div', { style: 'font-size:11px;opacity:.8' }, (p.proto || '').toUpperCase())),
-      el('td', {}, tunnelPill(w)),
+      el('td', {}, statusPill(w)),
       el('td', { class: 'mono' }, ip.ip || ''),
       el('td', {}, loc),
       el('td', { style: 'text-align:right' }, el('div', { class: 'btn-row', style: 'justify-content:flex-end' },
-        running ? act('Stop', () => api('POST', `/api/workers/${w.name}/stop`))
-                : act('Start', () => api('POST', `/api/workers/${w.name}/start`), 'primary sm'),
-        act('Restart', () => api('POST', `/api/workers/${w.name}/restart`)),
-        act('IP', () => api('POST', `/api/workers/${w.name}/ip`)),
-        el('button', { class: 'ghost sm', onclick: () => streamLogs(w.name) }, 'Logs'),
-        act('✕', () => api('DELETE', `/api/workers/${w.name}`), 'danger sm'),
+        running ? iconBtn('Disconnect', 'Stop this connection', () => api('POST', `/api/workers/${w.name}/stop`))
+                : iconBtn('Connect', 'Start this connection', () => api('POST', `/api/workers/${w.name}/start`), 'primary sm'),
+        iconBtn('Reconnect', 'Restart this connection', () => api('POST', `/api/workers/${w.name}/restart`)),
+        iconBtn('IP', 'Check exit IP', () => api('POST', `/api/workers/${w.name}/ip`)),
+        el('button', { class: 'ghost sm', title: 'Live logs', onclick: () => streamLogs(w.name) }, 'Logs'),
+        iconBtn('🗑', 'Delete this connection (profile + containers)',
+          () => confirm(`Delete connection “${w.name}”?\nThis removes its profile and containers.`) && api('DELETE', `/api/profiles/${w.name}`), 'danger sm'),
       )),
     );
   }));
@@ -367,8 +370,9 @@ document.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click'
   try {
     const r = await api('POST', `/api/bulk/${action}`, selected.size ? { targets: [...selected] } : {});
     const errs = Object.entries(r).filter(([, v]) => v && v.error && action !== 'ip');
+    const verb = { start: 'Connected', stop: 'Disconnected', restart: 'Reconnected', ip: 'Checked' }[action] || 'Done';
     errs.length ? toast(errs.map(([k, v]) => `${k}: ${v.error}`).join('\n'), 'err')
-                : toast(`${action} done · ${Object.keys(r).length} worker(s)`, 'ok');
+                : toast(`${verb} · ${Object.keys(r).length} connection(s)`, 'ok');
   } catch (e) { toast(e.message, 'err'); }
   b.disabled = false; refresh();
 }));
@@ -425,7 +429,7 @@ function startJob(targets) {
   const payload = { targets, timeout: +$('#timeout').value || 300 };
   if (scriptName) payload.script = scriptName;
   else { const b = $('#cmd').value.trim(); if (!b) return toast('Enter a command or pick a script', 'info'); payload.body = b; }
-  if (Array.isArray(targets) && !targets.length) return toast('Select at least one worker, or use “Run on all”.', 'info');
+  if (Array.isArray(targets) && !targets.length) return toast('Select at least one connection, or use “Run on all”.', 'info');
   api('POST', '/api/run', payload).then(r => openJob(r.job, r.targets)).catch(e => toast(e.message, 'err'));
 }
 function openJob(jobId, targets) {
