@@ -1,6 +1,9 @@
 # Worker app container: shares its gluetun sibling's network and runs the
-# scripts you send. Includes bash + common tools so real .sh scripts work
-# (busybox sh alone chokes on bashisms like C-style for loops).
-FROM alpine:3.22
-RUN apk add --no-cache bash curl coreutils grep sed jq ca-certificates tzdata
+# scripts you send. Debian-based, so `apt-get install ...` works and you get
+# bash + the full GNU userland (scripts with bashisms run fine).
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash curl ca-certificates jq procps iproute2 dnsutils iputils-ping \
+      coreutils grep sed tzdata \
+ && rm -rf /var/lib/apt/lists/*
 CMD ["sleep", "infinity"]
