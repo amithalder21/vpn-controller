@@ -212,6 +212,7 @@ def check_ip(name):
             "city": data.get("city"),
             "region": data.get("region_name"),
             "country": data.get("country"),
+            "country_iso": data.get("country_iso"),
             "org": (f'{data["asn"]} {data.get("asn_org", "")}'.strip()
                     if data.get("asn") else data.get("asn_org")),
         })

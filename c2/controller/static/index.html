@@ -6,365 +6,517 @@
 <title>VPN Fleet Control</title>
 <style>
   :root {
-    --bg: #f6f7f9; --panel: #fff; --text: #1b1f24; --muted: #667085; --line: #e3e6ea;
-    --accent: #2f6fde; --ok: #1a7f4b; --warn: #b26b00; --bad: #c0362c; --code: #0f1419; --codetext: #d6dde6;
+    --bg: #eef1f5; --panel: #ffffff; --panel2: #f6f8fa; --text: #161a1f; --muted: #6b7684;
+    --line: #e1e5ea; --line2: #eceff3; --accent: #2f6fde; --accent-weak: #e7eefb;
+    --ok: #12824a; --ok-bg: #e4f4ea; --warn: #9a6400; --warn-bg: #fbf0da; --bad: #c0362c; --bad-bg: #fbe6e3;
+    --code: #0e1116; --codetext: #d6dde6; --radius: 12px; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #0f1216; --panel: #171b21; --text: #e6e9ee; --muted: #8b95a3; --line: #2a3038;
-            --accent: #5b8ff0; --ok: #3fb97a; --warn: #e0a03c; --bad: #ef6a5e; --code: #0a0d10; }
+    :root { --bg: #0c0f13; --panel: #14181e; --panel2: #1a1f27; --text: #e7ebf0; --muted: #8b95a3;
+      --line: #262c35; --line2: #1f242c; --accent: #5b8ff0; --accent-weak: #1a2336;
+      --ok: #45c47f; --ok-bg: #12291d; --warn: #e0a03c; --warn-bg: #2a2110; --bad: #ef6a5e; --bad-bg: #2c1512;
+      --code: #0a0d11; --codetext: #cdd6df; --shadow: 0 1px 2px rgba(0,0,0,.4); }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 5; }
-  header h1 { font-size: 16px; margin: 0; }
+  html, body { margin: 0; }
+  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); }
+
+  header { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px;
+    padding: 12px 20px; background: color-mix(in srgb, var(--panel) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: -.01em; }
+  .logo { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, var(--accent), #7aa6f0); display: grid; place-items: center; color: #fff; font-size: 14px; box-shadow: var(--shadow); }
   header .sp { flex: 1; }
-  main { max-width: 1200px; margin: 0 auto; padding: 20px 16px; display: grid; gap: 18px; }
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
-  h2 { font-size: 14px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  h2 .sp { flex: 1; }
+  .conn { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); padding: 5px 10px; border: 1px solid var(--line); border-radius: 99px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.live { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+  .dot.err { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-bg); }
+  .dot.wait { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-bg); }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; display: grid; gap: 16px; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
+  .stat .n { font-size: 24px; font-weight: 680; letter-spacing: -.02em; }
+  .stat .l { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .stat .n small { font-size: 14px; font-weight: 500; color: var(--muted); }
+
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .sec-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 14px 16px; border-bottom: 1px solid var(--line2); }
+  .sec-h h2 { font-size: 13.5px; margin: 0; font-weight: 640; letter-spacing: -.01em; }
+  .sec-h .sp { flex: 1; }
+  .sec-b { padding: 14px 16px; }
+
   table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line2); vertical-align: middle; }
+  thead th { font-size: 11.5px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; position: sticky; top: 57px; background: var(--panel); z-index: 2; }
+  tbody tr:hover { background: var(--panel2); }
+  tbody tr:last-child td { border-bottom: none; }
   td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
-  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
-  button:hover { border-color: var(--accent); }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.danger:hover { border-color: var(--bad); color: var(--bad); }
-  button:disabled { opacity: .5; cursor: wait; }
-  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid currentColor; }
-  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); } .muted { color: var(--muted); }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  textarea, input[type=text], input[type=password], input[type=number], select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; }
-  textarea { width: 100%; min-height: 72px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
-  .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; margin-top: 12px; }
-  .result { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
-  .result .hd { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; font-size: 12.5px; border-bottom: 1px solid var(--line); }
-  pre { margin: 0; padding: 10px; background: var(--code); color: var(--codetext); font-size: 12px; max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, Menlo, monospace; }
-  .actions { display: flex; gap: 4px; flex-wrap: wrap; }
   .table-wrap { overflow-x: auto; }
-  #toast { position: fixed; bottom: 16px; right: 16px; max-width: 420px; padding: 10px 14px; border-radius: 8px; background: var(--text); color: var(--bg); display: none; white-space: pre-wrap; z-index: 20; }
-  .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); }
+
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 11px; cursor: pointer; transition: background .12s, border-color .12s, color .12s; white-space: nowrap; }
+  button:hover { background: var(--panel2); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+  button.ghost { border-color: transparent; background: transparent; padding: 5px 8px; color: var(--muted); }
+  button.ghost:hover { background: var(--panel2); color: var(--text); }
+  button.danger { color: var(--bad); }
+  button.danger:hover { background: var(--bad-bg); border-color: var(--bad); }
+  button.sm { padding: 4px 9px; font-size: 12.5px; border-radius: 7px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+  .pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 99px; font-size: 12px; font-weight: 550; border: 1px solid transparent; }
+  .pill .d { width: 7px; height: 7px; border-radius: 50%; }
+  .pill.ok { color: var(--ok); background: var(--ok-bg); } .pill.ok .d { background: var(--ok); }
+  .pill.warn { color: var(--warn); background: var(--warn-bg); } .pill.warn .d { background: var(--warn); }
+  .pill.bad { color: var(--bad); background: var(--bad-bg); } .pill.bad .d { background: var(--bad); }
+  .pill.muted { color: var(--muted); background: var(--panel2); } .pill.muted .d { background: var(--muted); }
+
+  .flag { font-size: 16px; margin-right: 6px; }
+  .muted { color: var(--muted); } .ok { color: var(--ok); } .bad { color: var(--bad); }
+
+  input[type=text], input[type=password], input[type=number], select, textarea {
+    font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
+  textarea { width: 100%; min-height: 90px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; resize: vertical; }
+  select { cursor: pointer; }
+
+  .chk { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+  .dropzone { border: 1.5px dashed var(--line); border-radius: 10px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; cursor: pointer; }
+  .dropzone.drag { border-color: var(--accent); background: var(--accent-weak); color: var(--text); }
+  .kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 5px; color: var(--muted); background: var(--panel2); }
+
+  .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; background: var(--panel); }
+  .card .hd { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--line2); background: var(--panel2); font-size: 12.5px; }
+  .card .hd .sp { flex: 1; }
+  pre { margin: 0; padding: 10px 11px; background: var(--code); color: var(--codetext); font-size: 12px; line-height: 1.5; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, Menlo, monospace; }
+  pre:empty::after { content: "waiting for output…"; color: #5b6570; }
+
+  #toasts { position: fixed; bottom: 18px; right: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 50; max-width: min(92vw, 440px); }
+  .toast { padding: 10px 13px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 6px 24px rgba(16,24,40,.16); font-size: 13px; display: flex; gap: 8px; align-items: flex-start; animation: slideIn .18s ease; white-space: pre-wrap; }
+  .toast.ok { border-left: 3px solid var(--ok); } .toast.err { border-left: 3px solid var(--bad); } .toast.info { border-left: 3px solid var(--accent); }
+  @keyframes slideIn { from { transform: translateY(8px); opacity: 0; } }
+
+  .empty { text-align: center; color: var(--muted); padding: 28px 10px; }
+  .count-chip { font-size: 12px; color: var(--muted); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg label { padding: 5px 10px; font-size: 12.5px; cursor: pointer; color: var(--muted); }
+  .seg input { display: none; }
+  .seg input:checked + label { background: var(--accent); color: #fff; }
+  .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .divider { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>VPN Fleet Control</h1>
+  <div class="brand"><span class="logo">⚡</span> VPN Fleet Control</div>
   <span class="sp"></span>
-  <input id="token" type="password" placeholder="Control token" size="22" autocomplete="off">
-  <button id="saveToken">Save token</button>
+  <span class="conn" id="conn"><span class="dot wait"></span><span id="connText">connecting…</span></span>
+  <button id="settingsBtn" class="ghost" title="Token">⚙︎</button>
 </header>
+
 <main>
+  <!-- settings row (token) -->
+  <section id="settings" style="display:none">
+    <div class="sec-b toolbar">
+      <span class="muted">Control token</span>
+      <input id="token" type="password" placeholder="paste token from c2/.env" size="30" autocomplete="off" style="flex:1;min-width:200px">
+      <button id="saveToken" class="primary">Save</button>
+      <span class="muted" style="font-size:12px">stored in this browser only</span>
+    </div>
+  </section>
+
+  <!-- fleet summary -->
+  <div class="stats">
+    <div class="stat"><div class="n" id="stProfiles">—</div><div class="l">Profiles</div></div>
+    <div class="stat"><div class="n" id="stRunning">—</div><div class="l">Workers running</div></div>
+    <div class="stat"><div class="n" id="stHealthy">—</div><div class="l">Tunnels healthy</div></div>
+    <div class="stat"><div class="n" id="stCountries">—</div><div class="l">Exit countries</div></div>
+  </div>
+
+  <!-- workers -->
   <section>
-    <h2>Workers <span class="sp"></span>
-      <button data-bulk="start" class="primary">Start all</button>
-      <button data-bulk="ip">Check all IPs</button>
-      <button data-bulk="restart">Restart all</button>
-      <button data-bulk="stop">Stop all</button>
-      <button data-bulk="remove" class="danger">Remove all</button>
-    </h2>
+    <div class="sec-h">
+      <h2>Workers</h2>
+      <span class="count-chip" id="selCount"></span>
+      <span class="sp"></span>
+      <div class="btn-row">
+        <button data-bulk="start" class="primary sm">Start all</button>
+        <button data-bulk="ip" class="sm">Check IPs</button>
+        <button data-bulk="restart" class="sm">Restart</button>
+        <button data-bulk="stop" class="sm">Stop</button>
+        <button data-bulk="remove" class="danger sm">Remove</button>
+      </div>
+    </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th><input type="checkbox" id="selAll"></th><th>Profile</th><th>Server</th><th>VPN</th><th>Exit IP</th><th>Location</th><th></th></tr></thead>
-        <tbody id="workers"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+        <thead><tr>
+          <th style="width:28px"><input type="checkbox" id="selAll" class="chk"></th>
+          <th>Profile</th><th>Server</th><th>Tunnel</th><th>Exit IP</th><th>Location</th><th style="text-align:right">Actions</th>
+        </tr></thead>
+        <tbody id="workers"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
       </table>
     </div>
-    <div class="row" style="margin-top:12px">
-      <label class="row">Add profiles: <input type="file" id="files" accept=".ovpn,.conf" multiple></label>
-      <button id="upload">Upload</button>
+    <div class="sec-b" style="border-top:1px solid var(--line2)">
+      <div class="dropzone" id="ovpnDrop">
+        <span>⬆︎</span><span>Drop <b>.ovpn</b> profiles here, or click to choose</span>
+        <input type="file" id="files" accept=".ovpn,.conf" multiple hidden>
+      </div>
     </div>
   </section>
 
+  <!-- run -->
   <section>
-    <h2>Scripts &amp; commands <span class="sp"></span>
-      <span class="muted" id="runTarget">target: selected workers</span>
-    </h2>
-    <div class="row" style="margin-bottom:10px">
-      <select id="scriptSel"><option value="">— inline command below —</option></select>
-      <button id="loadScript">Load</button>
-      <button id="delScript" class="danger">Delete</button>
-      <span class="sp" style="flex:1"></span>
-      <label class="row">Upload .sh: <input type="file" id="shfiles" accept=".sh" multiple></label>
-      <button id="uploadSh">Upload</button>
+    <div class="sec-h">
+      <h2>Run script / command</h2>
+      <span class="sp"></span>
+      <span class="count-chip" id="runTarget"></span>
     </div>
-    <textarea id="cmd" placeholder="#!/bin/sh&#10;curl -s https://ifconfig.co/json">curl -s https://ifconfig.co/country-iso</textarea>
-    <div class="row" style="margin-top:8px">
-      <button id="runSel" class="primary">Run on selected</button>
-      <button id="runAll">Run on all running</button>
-      <label class="row muted">timeout (s) <input id="timeout" type="number" value="300" min="1" max="3600" style="width:84px"></label>
-      <span class="sp" style="flex:1"></span>
-      <button id="saveAsScript">Save editor as .sh…</button>
+    <div class="sec-b" style="display:grid;gap:10px">
+      <div class="toolbar">
+        <select id="scriptSel" style="min-width:200px"><option value="">— inline (editor below) —</option></select>
+        <button id="loadScript" class="sm">Load</button>
+        <button id="delScript" class="danger sm">Delete</button>
+        <div class="divider"></div>
+        <div class="dropzone" id="shDrop" style="flex:1;min-width:200px">
+          <span>⬆︎</span><span>Drop <b>.sh</b> scripts here, or click</span>
+          <input type="file" id="shfiles" accept=".sh" multiple hidden>
+        </div>
+      </div>
+      <textarea id="cmd" spellcheck="false" placeholder="#!/bin/bash&#10;curl -s https://ifconfig.co/json">curl -s https://ifconfig.co/country-iso</textarea>
+      <div class="toolbar">
+        <button id="runSel" class="primary">Run on selected</button>
+        <button id="runAll">Run on all running</button>
+        <span class="kbd">⌘/Ctrl + Enter</span>
+        <div class="divider"></div>
+        <label class="muted" style="font-size:12.5px">timeout <input id="timeout" type="number" value="300" min="1" max="3600" style="width:78px"> s</label>
+        <span class="sp"></span>
+        <button id="saveAsScript" class="ghost sm">Save editor as .sh…</button>
+      </div>
     </div>
   </section>
 
+  <!-- job output -->
   <section id="jobBox" style="display:none">
-    <h2>Live job output <span class="tag" id="jobId"></span>
+    <div class="sec-h">
+      <h2>Live job output</h2>
+      <span class="pill muted" id="jobId"></span>
       <span class="sp"></span>
-      <span id="jobState" class="muted"></span>
-      <button id="jobCancel" class="danger">Cancel job</button>
-      <button id="jobStop">Stop stream</button>
-      <button id="jobClose">Close</button>
-    </h2>
-    <div id="jobResults" class="results"></div>
+      <div class="toolbar">
+        <label class="muted" style="font-size:12.5px"><input type="checkbox" id="jobAutoscroll" class="chk" checked> autoscroll</label>
+        <span id="jobState" class="count-chip"></span>
+        <button id="jobCancel" class="danger sm">Cancel job</button>
+        <button id="jobStop" class="sm">Stop stream</button>
+        <button id="jobClose" class="ghost sm">Close</button>
+      </div>
+    </div>
+    <div class="sec-b"><div id="jobResults" class="results"></div></div>
   </section>
 
+  <!-- logs -->
   <section id="logsBox" style="display:none">
-    <h2>Live logs: <span id="logsName" class="mono"></span>
+    <div class="sec-h">
+      <h2>Live logs</h2>
+      <span class="pill muted" id="logsName"></span>
       <span class="sp"></span>
-      <span id="logsState" class="muted"></span>
-      <button id="closeLogs">Close</button>
-    </h2>
-    <pre id="logs"></pre>
+      <div class="toolbar">
+        <input id="logFilter" type="text" placeholder="filter…" style="width:140px">
+        <label class="muted" style="font-size:12.5px"><input type="checkbox" id="logAutoscroll" class="chk" checked> autoscroll</label>
+        <span id="logsState" class="count-chip"></span>
+        <button id="clearLogs" class="ghost sm">Clear</button>
+        <button id="closeLogs" class="ghost sm">Close</button>
+      </div>
+    </div>
+    <div class="sec-b"><pre id="logs"></pre></div>
   </section>
 </main>
-<div id="toast"></div>
+<div id="toasts"></div>
 
 <script>
 const $ = s => document.querySelector(s);
-let token = '';
-try { token = localStorage.getItem('mvpn-token') || ''; } catch (e) {}
+let token = ''; try { token = localStorage.getItem('mvpn-token') || ''; } catch (e) {}
 $('#token').value = token;
 
-function toast(msg, ms = 4000) {
-  const t = $('#toast'); t.textContent = msg; t.style.display = 'block';
-  clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = 'none', ms);
+/* ---------- helpers ---------- */
+function toast(msg, kind = 'info', ms = 4200) {
+  const t = el('div', { class: 'toast ' + kind }, msg);
+  $('#toasts').append(t);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; setTimeout(() => t.remove(), 300); }, ms);
 }
-
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (k === 'html') e.innerHTML = v; else e.setAttribute(k, v);
+  }
+  for (const k of kids) e.append(k instanceof Node ? k : document.createTextNode(k ?? ''));
+  return e;
+}
+function flag(iso) {
+  if (!iso || iso.length !== 2) return '';
+  return String.fromCodePoint(...[...iso.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
+}
+function setConn(state, text) {
+  $('#conn').firstElementChild.className = 'dot ' + state;
+  $('#connText').textContent = text;
+}
 async function api(method, path, body, isForm) {
   const opts = { method, headers: { 'X-Token': token } };
   if (body && isForm) opts.body = body;
   else if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
   const r = await fetch(path, opts);
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || r.statusText);
+  if (!r.ok) { const e = new Error(data.error || r.statusText); e.status = r.status; throw e; }
   return data;
 }
 
-function el(tag, attrs = {}, ...kids) {
-  const e = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
-  }
-  for (const k of kids) e.append(k instanceof Node ? k : document.createTextNode(k ?? ''));
-  return e;
-}
+/* ---------- workers ---------- */
+let profiles = {}, selected = new Set(), lastWorkers = [];
 
-function vpnPill(w) {
-  if (!w.exists) return el('span', { class: 'pill muted' }, 'not started');
-  if (w.vpn !== 'running') return el('span', { class: 'pill bad' }, w.vpn || 'missing');
-  const h = w.health;
-  const cls = h === 'healthy' ? 'ok' : h === 'unhealthy' ? 'bad' : 'warn';
-  return el('span', { class: 'pill ' + cls }, h || 'running');
+function updateSelCount() {
+  const n = selected.size;
+  $('#selCount').textContent = n ? `${n} selected` : '';
+  $('#runTarget').textContent = $('#scriptSel').value
+    ? `script → ${n || 'all running'} worker${n === 1 ? '' : 's'}`
+    : `target → ${n ? n + ' selected' : 'all running'}`;
 }
-
-let profiles = {}, selected = new Set();
 
 async function refresh() {
   try {
     const [plist, workers] = await Promise.all([api('GET', '/api/profiles'), api('GET', '/api/workers')]);
     profiles = Object.fromEntries(plist.map(p => [p.name, p]));
+    lastWorkers = workers;
     render(workers);
+    renderStats(plist, workers);
+    setConn('live', 'connected');
   } catch (e) {
-    $('#workers').replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'bad' }, e.message)));
+    if (e.status === 401) { setConn('err', 'bad / missing token'); $('#workers').replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'empty' }, 'Enter your control token (⚙︎) to connect.'))); }
+    else { setConn('err', 'offline'); }
   }
+}
+
+function renderStats(plist, workers) {
+  const running = workers.filter(w => w.vpn === 'running');
+  const healthy = running.filter(w => w.health === 'healthy');
+  const countries = new Set(workers.map(w => w.ipinfo && w.ipinfo.country_iso).filter(Boolean));
+  $('#stProfiles').textContent = plist.length;
+  $('#stRunning').innerHTML = `${running.length}<small> / ${workers.length}</small>`;
+  $('#stHealthy').textContent = healthy.length;
+  $('#stCountries').textContent = countries.size || '—';
+}
+
+function tunnelPill(w) {
+  if (!w.exists) return el('span', { class: 'pill muted' }, el('span', { class: 'd' }), 'not started');
+  if (w.vpn !== 'running') return el('span', { class: 'pill bad' }, el('span', { class: 'd' }), w.vpn || 'missing');
+  const h = w.health, cls = h === 'healthy' ? 'ok' : h === 'unhealthy' ? 'bad' : 'warn';
+  return el('span', { class: 'pill ' + cls }, el('span', { class: 'd' }), h || 'running');
 }
 
 function render(workers) {
   const tb = $('#workers');
-  if (!workers.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted' }, 'No profiles yet. Upload .ovpn files below.'))); return; }
+  if (!workers.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'empty' }, 'No profiles yet — drop .ovpn files below to begin.'))); updateSelCount(); return; }
   tb.replaceChildren(...workers.map(w => {
-    const p = profiles[w.name] || {};
-    const ip = w.ipinfo || {};
-    const box = el('input', { type: 'checkbox' }); box.checked = selected.has(w.name);
-    box.addEventListener('change', () => box.checked ? selected.add(w.name) : selected.delete(w.name));
-    const act = (label, fn, cls = '') => el('button', { class: cls, onclick: async ev => {
-      ev.target.disabled = true;
-      try { await fn(); } catch (e) { toast(w.name + ': ' + e.message); }
-      ev.target.disabled = false; refresh();
+    const p = profiles[w.name] || {}, ip = w.ipinfo || {};
+    const box = el('input', { type: 'checkbox', class: 'chk' }); box.checked = selected.has(w.name);
+    box.addEventListener('change', () => { box.checked ? selected.add(w.name) : selected.delete(w.name); updateSelCount(); syncSelAll(); });
+    const act = (label, fn, cls = 'ghost sm') => el('button', { class: cls, onclick: async ev => {
+      ev.target.disabled = true; try { await fn(); } catch (e) { toast(w.name + ': ' + e.message, 'err'); } ev.target.disabled = false; refresh();
     } }, label);
+    const loc = ip.error ? el('span', { class: 'bad' }, ip.error.slice(0, 48))
+      : el('span', {}, flag(ip.country_iso) ? el('span', { class: 'flag' }, flag(ip.country_iso)) : '',
+          [ip.city, ip.country].filter(Boolean).join(', '),
+          ip.org ? el('div', { class: 'muted', style: 'font-size:11.5px' }, ip.org) : '');
+    const running = w.exists && w.vpn === 'running';
     return el('tr', {},
       el('td', {}, box),
-      el('td', { class: 'mono' }, w.name),
-      el('td', { class: 'mono muted' }, `${p.remote || '?'} ${p.proto || ''}`),
-      el('td', {}, vpnPill(w)),
-      el('td', { class: 'mono' }, ip.ip || (ip.error ? '—' : '')),
-      el('td', { class: ip.error ? 'bad' : '' }, ip.error ? ip.error.slice(0, 60) : [ip.city, ip.country].filter(Boolean).join(', ') + (ip.org ? ' · ' + ip.org : '')),
-      el('td', {}, el('div', { class: 'actions' },
-        w.exists && w.vpn === 'running'
-          ? act('Stop', () => api('POST', `/api/workers/${w.name}/stop`))
-          : act('Start', () => api('POST', `/api/workers/${w.name}/start`), 'primary'),
+      el('td', {}, el('div', { style: 'font-weight:550' }, w.name)),
+      el('td', { class: 'mono muted' }, `${p.remote || '?'}`, el('div', { style: 'font-size:11px;opacity:.8' }, (p.proto || '').toUpperCase())),
+      el('td', {}, tunnelPill(w)),
+      el('td', { class: 'mono' }, ip.ip || ''),
+      el('td', {}, loc),
+      el('td', { style: 'text-align:right' }, el('div', { class: 'btn-row', style: 'justify-content:flex-end' },
+        running ? act('Stop', () => api('POST', `/api/workers/${w.name}/stop`))
+                : act('Start', () => api('POST', `/api/workers/${w.name}/start`), 'primary sm'),
         act('Restart', () => api('POST', `/api/workers/${w.name}/restart`)),
         act('IP', () => api('POST', `/api/workers/${w.name}/ip`)),
-        el('button', { onclick: () => streamLogs(w.name) }, 'Logs'),
-        act('Remove', () => api('DELETE', `/api/workers/${w.name}`), 'danger'),
-        act('Delete profile', () => confirm(`Delete profile ${w.name}?`) && api('DELETE', `/api/profiles/${w.name}`), 'danger'),
+        el('button', { class: 'ghost sm', onclick: () => streamLogs(w.name) }, 'Logs'),
+        act('✕', () => api('DELETE', `/api/workers/${w.name}`), 'danger sm'),
       )),
     );
   }));
+  updateSelCount(); syncSelAll();
 }
-
-/* ---- live container logs via SSE ---- */
-let logSrc = null;
-function streamLogs(name) {
-  if (logSrc) logSrc.close();
-  $('#logsName').textContent = name; $('#logs').textContent = '';
-  $('#logsBox').style.display = ''; $('#logsState').textContent = 'connecting…';
-  const src = new EventSource(`/api/workers/${name}/logs/stream?tail=200&token=${encodeURIComponent(token)}`);
-  logSrc = src;
-  src.onopen = () => $('#logsState').innerHTML = '<span class="dot" style="background:var(--ok)"></span>live';
-  src.onmessage = ev => {
-    const atBottom = $('#logs').scrollTop + $('#logs').clientHeight >= $('#logs').scrollHeight - 30;
-    $('#logs').append(JSON.parse(ev.data).line);
-    if (atBottom) $('#logs').scrollTop = 1e9;
-  };
-  src.onerror = () => { $('#logsState').innerHTML = '<span class="dot" style="background:var(--bad)"></span>disconnected'; };
+function syncSelAll() {
+  const names = Object.keys(profiles);
+  $('#selAll').checked = names.length > 0 && names.every(n => selected.has(n));
 }
-$('#closeLogs').onclick = () => { if (logSrc) logSrc.close(); $('#logsBox').style.display = 'none'; };
+$('#selAll').addEventListener('change', e => {
+  selected = e.target.checked ? new Set(Object.keys(profiles)) : new Set();
+  render(lastWorkers);
+});
 
-/* ---- bulk worker actions ---- */
+/* ---------- bulk ---------- */
 document.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click', async () => {
   const action = b.dataset.bulk;
-  if (action === 'remove' && !confirm('Remove all worker containers? Profiles are kept.')) return;
+  if (action === 'remove' && !confirm('Remove all worker containers? (Profiles are kept.)')) return;
   b.disabled = true;
   try {
-    const r = await api('POST', `/api/bulk/${action}`, {});
+    const r = await api('POST', `/api/bulk/${action}`, selected.size ? { targets: [...selected] } : {});
     const errs = Object.entries(r).filter(([, v]) => v && v.error && action !== 'ip');
-    toast(errs.length ? errs.map(([k, v]) => `${k}: ${v.error}`).join('\n') : `${action}: done (${Object.keys(r).length})`);
-  } catch (e) { toast(e.message); }
+    errs.length ? toast(errs.map(([k, v]) => `${k}: ${v.error}`).join('\n'), 'err')
+                : toast(`${action} done · ${Object.keys(r).length} worker(s)`, 'ok');
+  } catch (e) { toast(e.message, 'err'); }
   b.disabled = false; refresh();
 }));
 
-$('#selAll').addEventListener('change', e => {
-  selected = e.target.checked ? new Set(Object.keys(profiles)) : new Set(); refresh();
-});
-
-$('#upload').onclick = async () => {
-  const files = $('#files').files;
-  if (!files.length) return toast('Choose .ovpn files first');
+/* ---------- profile upload (click + drag/drop) ---------- */
+function wireDrop(zoneId, inputId, onFiles) {
+  const zone = $(zoneId), input = $(inputId);
+  zone.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => { if (input.files.length) onFiles(input.files); input.value = ''; });
+  ['dragover', 'dragenter'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add('drag'); }));
+  ['dragleave', 'drop'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove('drag'); }));
+  zone.addEventListener('drop', e => { if (e.dataTransfer.files.length) onFiles(e.dataTransfer.files); });
+}
+async function uploadFiles(path, files, label) {
   const fd = new FormData(); for (const f of files) fd.append('files', f);
-  try { const r = await api('POST', '/api/profiles', fd, true); toast('Uploaded: ' + r.saved.join(', ')); $('#files').value = ''; }
-  catch (e) { toast(e.message); }
-  refresh();
-};
+  try { const r = await api('POST', path, fd, true); toast(`Uploaded ${label}: ${r.saved.join(', ')}`, 'ok'); }
+  catch (e) { toast(e.message, 'err'); }
+}
+wireDrop('#ovpnDrop', '#files', async files => { await uploadFiles('/api/profiles', files, 'profile'); refresh(); });
+wireDrop('#shDrop', '#shfiles', async files => { await uploadFiles('/api/scripts', files, 'script'); refreshScripts(); });
 
-/* ---- scripts ---- */
+/* ---------- scripts ---------- */
 async function refreshScripts() {
   try {
     const list = await api('GET', '/api/scripts');
-    const sel = $('#scriptSel'); const cur = sel.value;
-    sel.replaceChildren(el('option', { value: '' }, '— inline command below —'),
-      ...list.map(n => el('option', { value: n }, n)));
+    const sel = $('#scriptSel'), cur = sel.value;
+    sel.replaceChildren(el('option', { value: '' }, '— inline (editor below) —'), ...list.map(n => el('option', { value: n }, n)));
     sel.value = cur;
   } catch (e) {}
 }
-$('#uploadSh').onclick = async () => {
-  const files = $('#shfiles').files;
-  if (!files.length) return toast('Choose .sh files first');
-  const fd = new FormData(); for (const f of files) fd.append('files', f);
-  try { const r = await api('POST', '/api/scripts', fd, true); toast('Uploaded: ' + r.saved.join(', ')); $('#shfiles').value = ''; }
-  catch (e) { toast(e.message); }
-  refreshScripts();
-};
 $('#loadScript').onclick = async () => {
-  const name = $('#scriptSel').value;
-  if (!name) return toast('Pick a script to load');
-  try { const r = await api('GET', `/api/scripts/${name}`); $('#cmd').value = r.body; toast('Loaded ' + name); }
-  catch (e) { toast(e.message); }
+  const name = $('#scriptSel').value; if (!name) return toast('Pick a script to load', 'info');
+  try { const r = await api('GET', `/api/scripts/${name}`); $('#cmd').value = r.body; toast('Loaded ' + name, 'ok'); } catch (e) { toast(e.message, 'err'); }
 };
 $('#delScript').onclick = async () => {
-  const name = $('#scriptSel').value;
-  if (!name) return toast('Pick a script to delete');
+  const name = $('#scriptSel').value; if (!name) return toast('Pick a script to delete', 'info');
   if (!confirm(`Delete script ${name}?`)) return;
-  try { await api('DELETE', `/api/scripts/${name}`); toast('Deleted ' + name); } catch (e) { toast(e.message); }
+  try { await api('DELETE', `/api/scripts/${name}`); toast('Deleted ' + name, 'ok'); } catch (e) { toast(e.message, 'err'); }
   refreshScripts();
 };
 $('#saveAsScript').onclick = async () => {
-  let name = prompt('Save editor contents as which .sh file?', 'script.sh');
-  if (!name) return;
+  let name = prompt('Save editor contents as which .sh file?', 'script.sh'); if (!name) return;
   if (!name.endsWith('.sh')) name += '.sh';
-  const fd = new FormData();
-  fd.append('files', new File([$('#cmd').value], name, { type: 'text/x-shellscript' }));
-  try { await api('POST', '/api/scripts', fd, true); toast('Saved ' + name); } catch (e) { toast(e.message); }
+  const fd = new FormData(); fd.append('files', new File([$('#cmd').value], name, { type: 'text/x-shellscript' }));
+  try { await api('POST', '/api/scripts', fd, true); toast('Saved ' + name, 'ok'); } catch (e) { toast(e.message, 'err'); }
   refreshScripts();
 };
+$('#scriptSel').addEventListener('change', updateSelCount);
 
-/* ---- run a streaming job ---- */
+/* ---------- streaming jobs ---------- */
 let jobSrc = null, jobPanes = {}, currentJob = null;
 function startJob(targets) {
   const scriptName = $('#scriptSel').value;
   const payload = { targets, timeout: +$('#timeout').value || 300 };
   if (scriptName) payload.script = scriptName;
-  else {
-    const bodyText = $('#cmd').value.trim();
-    if (!bodyText) return toast('Enter a command or pick a script');
-    payload.body = bodyText;
-  }
-  if (Array.isArray(targets) && !targets.length) return toast('Select at least one worker');
-  api('POST', '/api/run', payload).then(r => openJob(r.job, r.targets)).catch(e => toast(e.message));
+  else { const b = $('#cmd').value.trim(); if (!b) return toast('Enter a command or pick a script', 'info'); payload.body = b; }
+  if (Array.isArray(targets) && !targets.length) return toast('Select at least one worker, or use “Run on all”.', 'info');
+  api('POST', '/api/run', payload).then(r => openJob(r.job, r.targets)).catch(e => toast(e.message, 'err'));
 }
 function openJob(jobId, targets) {
   if (jobSrc) jobSrc.close();
   jobPanes = {}; currentJob = jobId;
-  $('#jobId').textContent = jobId;
+  $('#jobId').textContent = '#' + jobId;
   $('#jobBox').style.display = '';
-  $('#jobState').innerHTML = '<span class="dot" style="background:var(--warn)"></span>running';
+  $('#jobState').innerHTML = 'running…';
+  $('#jobBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   const grid = $('#jobResults'); grid.replaceChildren();
   for (const name of targets) {
     const pre = el('pre', {});
-    const state = el('span', { class: 'muted' }, '…');
-    grid.append(el('div', { class: 'result' },
-      el('div', { class: 'hd' }, el('b', { class: 'mono' }, name), state), pre));
+    const state = el('span', { class: 'count-chip' }, '…');
+    const copy = el('button', { class: 'ghost sm', onclick: () => { navigator.clipboard?.writeText(pre.textContent); toast('Copied ' + name, 'ok', 1500); } }, 'Copy');
+    grid.append(el('div', { class: 'card' }, el('div', { class: 'hd' }, el('b', { class: 'mono' }, name), el('span', { class: 'sp' }), state, copy), pre));
     jobPanes[name] = { pre, state };
   }
   const src = new EventSource(`/api/jobs/${jobId}/stream?token=${encodeURIComponent(token)}`);
   jobSrc = src;
+  let done = 0, total = targets.length;
   src.onmessage = ev => {
     const d = JSON.parse(ev.data);
-    if (d.event === 'done') { $('#jobState').innerHTML = '<span class="dot" style="background:var(--ok)"></span>finished'; src.close(); return; }
+    if (d.event === 'done') { $('#jobState').innerHTML = `<span class="ok">✓ finished</span>`; src.close(); return; }
     if (d.event === 'start') return;
-    if (d.event === 'cancel') { toast(`Cancelled: killed ${d.total} process(es)`); return; }
+    if (d.event === 'cancel') { toast(`Cancelled — killed ${d.total} process(es)`, 'ok'); return; }
     const pane = jobPanes[d.worker]; if (!pane) return;
     if (d.event === 'exit') {
       const ok = d.code === '0';
       pane.state.className = ok ? 'ok' : 'bad';
-      pane.state.textContent = d.code === '124' ? 'timed out' : `exit ${d.code}`;
+      pane.state.textContent = d.code === '124' ? 'timed out' : (d.code === '143' ? 'cancelled' : `exit ${d.code}`);
       if (d.line) pane.pre.append(d.line);
+      done++; $('#jobState').textContent = `${done}/${total} done`;
       return;
     }
     if (d.line !== undefined) {
       const atBottom = pane.pre.scrollTop + pane.pre.clientHeight >= pane.pre.scrollHeight - 30;
       pane.pre.append(d.line);
-      if (atBottom) pane.pre.scrollTop = 1e9;
+      if ($('#jobAutoscroll').checked && atBottom) pane.pre.scrollTop = 1e9;
     }
   };
-  src.onerror = () => { $('#jobState').innerHTML = '<span class="dot" style="background:var(--bad)"></span>stream error'; };
+  src.onerror = () => { $('#jobState').innerHTML = '<span class="bad">stream error</span>'; };
 }
 $('#runSel').onclick = () => startJob([...selected]);
 $('#runAll').onclick = () => startJob('all');
+$('#cmd').addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); startJob(selected.size ? [...selected] : 'all'); } });
 $('#jobCancel').onclick = async ev => {
-  if (!currentJob) return;
-  ev.target.disabled = true;
+  if (!currentJob) return; ev.target.disabled = true;
   try { const r = await api('POST', `/api/jobs/${currentJob}/cancel`, {});
     const total = Object.values(r).reduce((a, v) => a + (v.killed || 0), 0);
-    toast(`Cancel sent — killed ${total} process(es) across workers`);
-  } catch (e) { toast(e.message); }
-  ev.target.disabled = false;
+    toast(`Cancel sent — killed ${total} process(es)`, 'ok');
+  } catch (e) { toast(e.message, 'err'); } ev.target.disabled = false;
 };
-$('#jobStop').onclick = () => { if (jobSrc) jobSrc.close(); $('#jobState').textContent = 'stream stopped (job still running — use Cancel to kill it)'; };
+$('#jobStop').onclick = () => { if (jobSrc) jobSrc.close(); $('#jobState').innerHTML = '<span class="muted">stream stopped — job still running (use Cancel to kill)</span>'; };
 $('#jobClose').onclick = () => { if (jobSrc) jobSrc.close(); $('#jobBox').style.display = 'none'; };
 
-$('#scriptSel').addEventListener('change', e => {
-  $('#runTarget').textContent = e.target.value ? `will run saved script: ${e.target.value}` : 'target: selected workers';
-});
+/* ---------- live logs ---------- */
+let logSrc = null, logLines = [];
+function streamLogs(name) {
+  if (logSrc) logSrc.close();
+  $('#logsName').textContent = name; $('#logs').textContent = ''; logLines = [];
+  $('#logsBox').style.display = ''; $('#logsState').textContent = 'connecting…';
+  $('#logsBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const src = new EventSource(`/api/workers/${name}/logs/stream?tail=200&token=${encodeURIComponent(token)}`);
+  logSrc = src;
+  src.onopen = () => $('#logsState').innerHTML = '<span class="ok">● live</span>';
+  src.onmessage = ev => { logLines.push(JSON.parse(ev.data).line); if (logLines.length > 4000) logLines = logLines.slice(-3000); renderLogs(); };
+  src.onerror = () => { $('#logsState').innerHTML = '<span class="bad">● disconnected</span>'; };
+}
+function renderLogs() {
+  const f = $('#logFilter').value.toLowerCase();
+  const pre = $('#logs');
+  const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 40;
+  pre.textContent = (f ? logLines.filter(l => l.toLowerCase().includes(f)) : logLines).join('');
+  if ($('#logAutoscroll').checked && atBottom) pre.scrollTop = 1e9;
+}
+$('#logFilter').addEventListener('input', renderLogs);
+$('#clearLogs').onclick = () => { logLines = []; renderLogs(); };
+$('#closeLogs').onclick = () => { if (logSrc) logSrc.close(); $('#logsBox').style.display = 'none'; };
 
+/* ---------- settings / token ---------- */
+$('#settingsBtn').onclick = () => { const s = $('#settings'); s.style.display = s.style.display === 'none' ? '' : 'none'; };
 $('#saveToken').onclick = () => {
   token = $('#token').value.trim();
   try { localStorage.setItem('mvpn-token', token); } catch (e) {}
-  refresh(); refreshScripts();
+  setConn('wait', 'connecting…'); refresh(); refreshScripts();
+  toast('Token saved', 'ok', 1800);
 };
+if (!token) $('#settings').style.display = '';
 
-refresh();
-refreshScripts();
+/* ---------- boot ---------- */
+refresh(); refreshScripts();
 setInterval(refresh, 5000);
 </script>
 </body>

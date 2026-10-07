@@ -43,6 +43,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - profiles:/profiles
       - scripts:/scripts
+      # dev convenience: edit the UI and reload the browser, no rebuild needed
+      - ./controller/static:/app/static:ro
     networks: [mvpn]
 
 volumes:
