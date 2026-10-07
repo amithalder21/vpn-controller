@@ -96,6 +96,9 @@ def ensure_image(image):
     try:
         client.images.get(image)
     except ImageNotFound:
+        # locally-built images (no registry) can't be pulled
+        if "/" not in image or image.startswith("mvpn-"):
+            abort(500, f"image {image} is missing; run: docker compose build")
         client.images.pull(image)
 
 
@@ -266,10 +269,18 @@ def stream_exec(name, script_b64, timeout, job_id):
         publish(job_id, worker=name, event="exit", code="-1",
                 line="worker not running\n")
         return
-    cmd = ["timeout", str(int(timeout)), "sh", "-c",
-           f"echo {script_b64} | base64 -d | sh"]
+    # Decode to a temp file and execute it so the script's own shebang decides
+    # the interpreter (bash is available in the worker image); files with no
+    # shebang fall back to sh. tr strips CR so CRLF uploads don't break. The
+    # outer `timeout` sets rc=124 on overrun, which we surface below.
+    runner = (
+        'd=$(mktemp); echo "$MVPN_B64" | base64 -d | tr -d "\\r" > "$d"; '
+        f'chmod +x "$d"; timeout {int(timeout)} "$d"; rc=$?; rm -f "$d"; exit $rc'
+    )
+    cmd = ["sh", "-c", runner]
     try:
-        ex = client.api.exec_create(wapp.id, cmd, tty=False)
+        ex = client.api.exec_create(
+            wapp.id, cmd, tty=False, environment={"MVPN_B64": script_b64})
         buf = ""
         for chunk in client.api.exec_start(ex["Id"], stream=True):
             buf += chunk.decode("utf-8", errors="replace")

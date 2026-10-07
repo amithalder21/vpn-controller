@@ -6,6 +6,14 @@
 # host: keep it on localhost or behind a strong CONTROL_TOKEN.
 
 services:
+  # Builds the worker app image (bash + tools). It runs `true` and exits;
+  # the controller creates the real app containers from this image.
+  worker-app:
+    build: ./worker-app
+    image: mvpn-worker-app:latest
+    entrypoint: ["true"]
+    restart: "no"
+
   dragonfly:
     image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
     restart: unless-stopped
@@ -28,6 +36,7 @@ services:
       REDIS_URL: redis://dragonfly:6379/0
       PROFILES_VOLUME: mvpn-profiles
       SCRIPTS_VOLUME: mvpn-scripts
+      APP_IMAGE: mvpn-worker-app:latest
       WORKER_NETWORK: mvpn-net
       TZ: Asia/Kolkata
     volumes:
