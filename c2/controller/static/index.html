@@ -37,10 +37,10 @@
 
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
   @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
-  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
-  .stat .n { font-size: 24px; font-weight: 680; letter-spacing: -.02em; }
-  .stat .l { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .stat .n small { font-size: 14px; font-weight: 500; color: var(--muted); }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 15px; box-shadow: var(--shadow); }
+  .stat .n { font-size: 21px; font-weight: 680; letter-spacing: -.02em; }
+  .stat .l { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+  .stat .n small { font-size: 13px; font-weight: 500; color: var(--muted); }
 
   section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
   .sec-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 14px 16px; border-bottom: 1px solid var(--line2); }
@@ -74,6 +74,21 @@
   .iact.danger:hover { color: var(--bad); border-color: var(--bad); background: var(--bad-bg); }
   .iact svg { width: 16px; height: 16px; display: block; }
   .act-sep { width: 1px; height: 18px; background: var(--line); margin: 0 3px; }
+
+  /* dropdown menu */
+  .kebab { width: 30px; height: 30px; padding: 0; display: inline-grid; place-items: center; border-radius: 8px; border-color: transparent; background: transparent; color: var(--muted); }
+  .kebab:hover { background: var(--panel2); color: var(--text); border-color: var(--line); }
+  .menu { position: fixed; z-index: 60; min-width: 170px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 30px rgba(16,24,40,.18); padding: 5px; animation: slideIn .12s ease; }
+  .menu-item { display: flex; width: 100%; text-align: left; border: none; background: none; padding: 7px 10px; border-radius: 7px; color: var(--text); font-size: 13px; }
+  .menu-item:hover { background: var(--panel2); }
+  .menu-item.danger { color: var(--bad); }
+  .menu-item.danger:hover { background: var(--bad-bg); }
+  .menu-sep { height: 1px; background: var(--line2); margin: 4px 2px; }
+
+  /* row cells */
+  .cname { font-weight: 600; font-size: 13.5px; }
+  .csub { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+  td { height: 56px; }
 
   .pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 99px; font-size: 12px; font-weight: 550; border: 1px solid transparent; }
   .pill .d { width: 7px; height: 7px; border-radius: 50%; }
@@ -205,7 +220,7 @@
       <table>
         <thead><tr>
           <th style="width:28px"><input type="checkbox" id="selAll" class="chk"></th>
-          <th>Name</th><th>Server</th><th>Status</th><th>Exit IP</th><th>Location</th><th style="text-align:right">Actions</th>
+          <th>Name</th><th>Exit location</th><th>Status</th><th style="text-align:right">Actions</th>
         </tr></thead>
         <tbody id="workers"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
       </table>
@@ -303,7 +318,26 @@ const ICON = {
   logs: _svg('<path d="M4 6h16M4 12h16M4 18h10"/>'),
   pencil: _svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>'),
   trash: _svg('<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/>'),
+  more: _svg('<circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/>'),
 };
+
+/* lightweight dropdown menu */
+function closeMenu() { document.querySelectorAll('.menu').forEach(m => m.remove()); }
+function openMenu(anchor, items) {
+  closeMenu();
+  const m = el('div', { class: 'menu' });
+  for (const it of items) {
+    if (it.sep) { m.append(el('div', { class: 'menu-sep' })); continue; }
+    m.append(el('button', { class: 'menu-item' + (it.danger ? ' danger' : ''), onclick: e => { e.stopPropagation(); closeMenu(); it.fn(); } }, it.label));
+  }
+  document.body.append(m);
+  const r = anchor.getBoundingClientRect(), w = m.offsetWidth || 180;
+  m.style.top = Math.min(r.bottom + 4, window.innerHeight - m.offsetHeight - 8) + 'px';
+  m.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+  setTimeout(() => document.addEventListener('click', closeMenu, { once: true }), 0);
+}
+window.addEventListener('resize', closeMenu);
+document.addEventListener('scroll', closeMenu, true);
 
 /* ---------- helpers ---------- */
 function toast(msg, kind = 'info', ms = 4200) {
@@ -413,54 +447,58 @@ function populateTagFilter() {
 function render() {
   populateTagFilter();
   const tb = $('#workers');
-  if (!lastWorkers.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'empty' }, 'No connections yet — drop .ovpn files below to add one.'))); updateSelCount(); return; }
+  if (!lastWorkers.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'No connections yet — drop .ovpn files below to add one.'))); updateSelCount(); return; }
   const rows = filteredWorkers();
-  if (!rows.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'empty' }, 'No connections match the current filter.'))); updateSelCount(); syncSelAll(); return; }
+  if (!rows.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'No connections match the current filter.'))); updateSelCount(); syncSelAll(); return; }
   tb.replaceChildren(...rows.map(w => {
     const p = profiles[w.name] || {}, ip = w.ipinfo || {}, st = w.stats;
+    const running = w.exists && w.vpn === 'running';
+    const run = (fn) => async () => { try { await fn(); } catch (e) { toast(w.name + ': ' + e.message, 'err'); } refresh(); };
+
     const box = el('input', { type: 'checkbox', class: 'chk' }); box.checked = selected.has(w.name);
     box.addEventListener('change', () => { box.checked ? selected.add(w.name) : selected.delete(w.name); updateSelCount(); syncSelAll(); });
-    const loc = ip.error ? el('span', { class: 'bad' }, ip.error.slice(0, 48))
-      : el('span', {}, flag(ip.country_iso) ? el('span', { class: 'flag' }, flag(ip.country_iso)) : '',
-          [ip.city, ip.country].filter(Boolean).join(', '),
-          ip.org ? el('div', { class: 'muted', style: 'font-size:11.5px' }, ip.org) : '');
-    const running = w.exists && w.vpn === 'running';
-    const actBtn = (label, title, fn, cls = 'iact') => {
-      const b = el('button', { class: cls, title, onclick: async ev => {
-        const btn = ev.currentTarget; btn.disabled = true;
-        try { await fn(); } catch (e) { toast(w.name + ': ' + e.message, 'err'); } btn.disabled = false; refresh();
-      } });
-      if (label.startsWith('<svg')) b.innerHTML = label; else b.textContent = label;
-      return b;
-    };
-    // tags row
+
+    // NAME: name + server subline + inline tags
     const tagEls = (w.tags || []).map(t => el('span', { class: 'tag-chip', title: 'filter by #' + t, onclick: () => { $('#tagFilter').value = t; filterTag = t; render(); } }, '#' + t));
-    const tagsRow = el('div', { class: 'tags' }, ...tagEls,
-      el('button', { class: 'tag-add', title: 'Edit tags', onclick: () => editTags(w) }, '＋'));
-    const nameCell = el('td', {}, el('div', { style: 'font-weight:550' }, w.name),
-      w.gaveup ? el('span', { class: 'attn', title: 'Auto-heal gave up — reconnect to retry' }, 'needs attention') : '', tagsRow);
-    // status cell with cpu/mem + restarts
+    const nameCell = el('td', {},
+      el('div', { style: 'display:flex;align-items:center;gap:7px;flex-wrap:wrap' },
+        el('span', { class: 'cname' }, w.name),
+        w.gaveup ? el('span', { class: 'attn', title: 'Auto-heal gave up — reconnect to retry' }, 'needs attention') : '',
+        ...tagEls),
+      el('div', { class: 'csub mono' }, `${p.remote || '?'}`, p.proto ? ' · ' + p.proto.toUpperCase() : ''));
+
+    // EXIT: flag + city/country + ip (or error / dash)
+    let exitCell;
+    if (ip.error) exitCell = el('td', {}, el('span', { class: 'bad' }, ip.error.slice(0, 44)));
+    else if (ip.ip) exitCell = el('td', {},
+      el('div', {}, flag(ip.country_iso) ? el('span', { class: 'flag' }, flag(ip.country_iso)) : '', [ip.city, ip.country].filter(Boolean).join(', ') || '—'),
+      el('div', { class: 'csub mono' }, ip.ip));
+    else exitCell = el('td', {}, el('span', { class: 'muted' }, running ? 'checking…' : '—'));
+
+    // STATUS: pill + cpu/mem + restarts
     const meta = [];
-    if (running && st) meta.push(`${st.cpu}% cpu · ${st.mem_mb}MB`);
+    if (running && st) meta.push(`${st.cpu}% · ${st.mem_mb}MB`);
     if (w.restarts) meta.push(`↻${w.restarts}`);
-    const statusCell = el('td', {}, statusPill(w), meta.length ? el('div', { class: 'meta' }, meta.join('  ')) : '');
-    return el('tr', {}, el('td', {}, box), nameCell,
-      el('td', { class: 'mono muted' }, `${p.remote || '?'}`, el('div', { style: 'font-size:11px;opacity:.8' }, (p.proto || '').toUpperCase())),
-      statusCell,
-      el('td', { class: 'mono' }, ip.ip || ''),
-      el('td', {}, loc),
-      el('td', { style: 'text-align:right' }, el('div', { class: 'actions-group' },
-        running ? actBtn('Disconnect', 'Stop this connection', () => api('POST', `/api/workers/${w.name}/stop`), 'sm')
-                : actBtn('Connect', 'Start this connection', () => api('POST', `/api/workers/${w.name}/start`), 'primary sm'),
-        el('span', { class: 'act-sep' }),
-        actBtn(ICON.reconnect, 'Reconnect', () => api('POST', `/api/workers/${w.name}/restart`)),
-        actBtn(ICON.globe, 'Check exit IP', () => api('POST', `/api/workers/${w.name}/ip`)),
-        el('button', { class: 'iact', title: 'Live logs', html: ICON.logs, onclick: () => streamLogs(w.name) }),
-        actBtn(ICON.pencil, 'Rename', () => renameConn(w.name)),
-        actBtn(ICON.trash, 'Delete connection (profile + containers)',
-          () => confirm(`Delete connection “${w.name}”?\nThis removes its profile and containers.`) && api('DELETE', `/api/profiles/${w.name}`), 'iact danger'),
-      )),
-    );
+    const statusCell = el('td', {}, statusPill(w), meta.length ? el('div', { class: 'csub' }, meta.join('  ')) : '');
+
+    // ACTIONS: primary toggle + kebab menu
+    const toggle = el('button', { class: running ? 'sm' : 'primary sm', onclick: run(() => api('POST', `/api/workers/${w.name}/${running ? 'stop' : 'start'}`)) }, running ? 'Disconnect' : 'Connect');
+    const kebab = el('button', { class: 'kebab', title: 'More', html: ICON.more, onclick: e => {
+      e.stopPropagation();
+      openMenu(e.currentTarget, [
+        { label: 'Reconnect', fn: run(() => api('POST', `/api/workers/${w.name}/restart`)) },
+        { label: 'Check exit IP', fn: run(() => api('POST', `/api/workers/${w.name}/ip`)) },
+        { label: 'Live logs', fn: () => streamLogs(w.name) },
+        { sep: true },
+        { label: 'Edit tags…', fn: () => editTags(w) },
+        { label: 'Rename…', fn: () => renameConn(w.name) },
+        { sep: true },
+        { label: 'Delete connection', danger: true, fn: () => confirm(`Delete connection “${w.name}”?\nThis removes its profile and containers.`) && run(() => api('DELETE', `/api/profiles/${w.name}`))() },
+      ]);
+    } });
+    const actionsCell = el('td', { style: 'text-align:right' }, el('div', { class: 'actions-group' }, toggle, kebab));
+
+    return el('tr', {}, el('td', {}, box), nameCell, exitCell, statusCell, actionsCell);
   }));
   updateSelCount(); syncSelAll();
 }
