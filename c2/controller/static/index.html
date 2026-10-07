@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VPN Fleet Control</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1b1f24; --muted: #667085; --line: #e3e6ea;
+    --accent: #2f6fde; --ok: #1a7f4b; --warn: #b26b00; --bad: #c0362c; --code: #0f1419; --codetext: #d6dde6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1216; --panel: #171b21; --text: #e6e9ee; --muted: #8b95a3; --line: #2a3038;
+            --accent: #5b8ff0; --ok: #3fb97a; --warn: #e0a03c; --bad: #ef6a5e; --code: #0a0d10; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0; }
+  header .sp { flex: 1; }
+  main { max-width: 1200px; margin: 0 auto; padding: 20px 16px; display: grid; gap: 18px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  h2 { font-size: 14px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  h2 .sp { flex: 1; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger:hover { border-color: var(--bad); color: var(--bad); }
+  button:disabled { opacity: .5; cursor: wait; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid currentColor; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); } .muted { color: var(--muted); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  textarea, input[type=text], input[type=password], input[type=number] { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; }
+  textarea { width: 100%; min-height: 64px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; margin-top: 12px; }
+  .result { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .result .hd { display: flex; justify-content: space-between; padding: 6px 10px; font-size: 12.5px; border-bottom: 1px solid var(--line); }
+  pre { margin: 0; padding: 10px; background: var(--code); color: var(--codetext); font-size: 12px; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+  .actions { display: flex; gap: 4px; flex-wrap: wrap; }
+  .table-wrap { overflow-x: auto; }
+  #toast { position: fixed; bottom: 16px; right: 16px; max-width: 420px; padding: 10px 14px; border-radius: 8px; background: var(--text); color: var(--bg); display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>VPN Fleet Control</h1>
+  <span class="sp"></span>
+  <input id="token" type="password" placeholder="Control token" size="22" autocomplete="off">
+  <button id="saveToken">Save token</button>
+</header>
+<main>
+  <section>
+    <h2>Workers <span class="sp"></span>
+      <button data-bulk="start" class="primary">Start all</button>
+      <button data-bulk="ip">Check all IPs</button>
+      <button data-bulk="restart">Restart all</button>
+      <button data-bulk="stop">Stop all</button>
+      <button data-bulk="remove" class="danger">Remove all</button>
+    </h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th><input type="checkbox" id="selAll"></th><th>Profile</th><th>Server</th><th>VPN</th><th>Exit IP</th><th>Location</th><th></th></tr></thead>
+        <tbody id="workers"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label class="row">Add profiles: <input type="file" id="files" accept=".ovpn,.conf" multiple></label>
+      <button id="upload">Upload</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Run command</h2>
+    <textarea id="cmd" placeholder="e.g. curl -s https://ipinfo.io/json">curl -s https://ipinfo.io/ip</textarea>
+    <div class="row" style="margin-top:8px">
+      <button id="runSel" class="primary">Run on selected</button>
+      <button id="runAll">Run on all running</button>
+      <label class="row muted">timeout (s) <input id="timeout" type="number" value="60" min="1" max="600" style="width:80px"></label>
+    </div>
+    <div id="results" class="results"></div>
+  </section>
+
+  <section id="logsBox" style="display:none">
+    <h2>Logs: <span id="logsName" class="mono"></span><span class="sp"></span><button id="closeLogs">Close</button></h2>
+    <pre id="logs"></pre>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let token = '';
+try { token = localStorage.getItem('mvpn-token') || ''; } catch (e) {}
+$('#token').value = token;
+
+function toast(msg, ms = 3500) {
+  const t = $('#toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = 'none', ms);
+}
+
+async function api(method, path, body, isForm) {
+  const opts = { method, headers: { 'X-Token': token } };
+  if (body && isForm) opts.body = body;
+  else if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const r = await fetch(path, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const k of kids) e.append(k instanceof Node ? k : document.createTextNode(k ?? ''));
+  return e;
+}
+
+function vpnPill(w) {
+  if (!w.exists) return el('span', { class: 'pill muted' }, 'not started');
+  if (w.vpn !== 'running') return el('span', { class: 'pill bad' }, w.vpn || 'missing');
+  const h = w.health;
+  const cls = h === 'healthy' ? 'ok' : h === 'unhealthy' ? 'bad' : 'warn';
+  return el('span', { class: 'pill ' + cls }, h || 'running');
+}
+
+let profiles = {}, selected = new Set();
+
+async function refresh() {
+  try {
+    const [plist, workers] = await Promise.all([api('GET', '/api/profiles'), api('GET', '/api/workers')]);
+    profiles = Object.fromEntries(plist.map(p => [p.name, p]));
+    render(workers);
+  } catch (e) {
+    $('#workers').replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'bad' }, e.message)));
+  }
+}
+
+function render(workers) {
+  const tb = $('#workers');
+  if (!workers.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted' }, 'No profiles yet. Upload .ovpn files below.'))); return; }
+  tb.replaceChildren(...workers.map(w => {
+    const p = profiles[w.name] || {};
+    const ip = w.ipinfo || {};
+    const box = el('input', { type: 'checkbox' }); box.checked = selected.has(w.name);
+    box.addEventListener('change', () => box.checked ? selected.add(w.name) : selected.delete(w.name));
+    const act = (label, fn, cls = '') => el('button', { class: cls, onclick: async ev => {
+      ev.target.disabled = true;
+      try { await fn(); } catch (e) { toast(w.name + ': ' + e.message); }
+      ev.target.disabled = false; refresh();
+    } }, label);
+    return el('tr', {},
+      el('td', {}, box),
+      el('td', { class: 'mono' }, w.name),
+      el('td', { class: 'mono muted' }, `${p.remote || '?'} ${p.proto || ''}`),
+      el('td', {}, vpnPill(w)),
+      el('td', { class: 'mono' }, ip.ip || (ip.error ? '—' : '')),
+      el('td', { class: ip.error ? 'bad' : '' }, ip.error ? ip.error.slice(0, 60) : [ip.city, ip.country].filter(Boolean).join(', ') + (ip.org ? ' · ' + ip.org : '')),
+      el('td', {}, el('div', { class: 'actions' },
+        w.exists && w.vpn === 'running'
+          ? act('Stop', () => api('POST', `/api/workers/${w.name}/stop`))
+          : act('Start', () => api('POST', `/api/workers/${w.name}/start`), 'primary'),
+        act('Restart', () => api('POST', `/api/workers/${w.name}/restart`)),
+        act('IP', () => api('POST', `/api/workers/${w.name}/ip`)),
+        act('Logs', () => showLogs(w.name)),
+        act('Remove', () => api('DELETE', `/api/workers/${w.name}`), 'danger'),
+        act('Delete profile', () => confirm(`Delete profile ${w.name}?`) && api('DELETE', `/api/profiles/${w.name}`), 'danger'),
+      )),
+    );
+  }));
+}
+
+async function showLogs(name) {
+  const r = await api('GET', `/api/workers/${name}/logs?tail=200`);
+  $('#logsName').textContent = name; $('#logs').textContent = r.logs;
+  $('#logsBox').style.display = ''; $('#logs').scrollTop = 1e9;
+}
+$('#closeLogs').onclick = () => $('#logsBox').style.display = 'none';
+
+document.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click', async () => {
+  const action = b.dataset.bulk;
+  if (action === 'remove' && !confirm('Remove all worker containers? Profiles are kept.')) return;
+  b.disabled = true;
+  try {
+    const r = await api('POST', `/api/bulk/${action}`, {});
+    const errs = Object.entries(r).filter(([, v]) => v && v.error && action !== 'ip');
+    toast(errs.length ? errs.map(([k, v]) => `${k}: ${v.error}`).join('\n') : `${action}: done (${Object.keys(r).length})`);
+  } catch (e) { toast(e.message); }
+  b.disabled = false; refresh();
+}));
+
+$('#selAll').addEventListener('change', e => {
+  selected = e.target.checked ? new Set(Object.keys(profiles)) : new Set(); refresh();
+});
+
+$('#upload').onclick = async () => {
+  const files = $('#files').files;
+  if (!files.length) return toast('Choose .ovpn files first');
+  const fd = new FormData(); for (const f of files) fd.append('files', f);
+  try { const r = await api('POST', '/api/profiles', fd, true); toast('Uploaded: ' + r.saved.join(', ')); $('#files').value = ''; }
+  catch (e) { toast(e.message); }
+  refresh();
+};
+
+async function run(targets) {
+  const command = $('#cmd').value.trim();
+  if (!command) return toast('Enter a command');
+  if (Array.isArray(targets) && !targets.length) return toast('Select at least one worker');
+  const out = $('#results'); out.replaceChildren(el('div', { class: 'muted' }, 'Running…'));
+  try {
+    const r = await api('POST', '/api/exec', { command, targets, timeout: +$('#timeout').value || 60 });
+    out.replaceChildren(...Object.entries(r).map(([name, res]) => el('div', { class: 'result' },
+      el('div', { class: 'hd' }, el('b', { class: 'mono' }, name),
+        el('span', { class: res.exit === 0 ? 'ok' : 'bad' }, res.error ? 'error' : `exit ${res.exit} · ${res.ms} ms`)),
+      el('pre', {}, res.error || res.output || '(no output)'))));
+    if (!Object.keys(r).length) out.replaceChildren(el('div', { class: 'muted' }, 'No running workers.'));
+  } catch (e) { out.replaceChildren(el('div', { class: 'bad' }, e.message)); }
+}
+$('#runSel').onclick = () => run([...selected]);
+$('#runAll').onclick = () => run('all');
+
+$('#saveToken').onclick = () => {
+  token = $('#token').value.trim();
+  try { localStorage.setItem('mvpn-token', token); } catch (e) {}
+  refresh();
+};
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

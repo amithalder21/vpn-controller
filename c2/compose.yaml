@@ -1,0 +1,29 @@
+# VPN fleet controller. Workers (one gluetun + one app container per .ovpn
+# profile) are created at runtime by the controller, not listed here.
+#
+# The controller mounts the Docker socket, which is equivalent to root on
+# the host: keep it on localhost or behind a strong CONTROL_TOKEN.
+
+services:
+  controller:
+    build: ./controller
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:8080"
+    environment:
+      CONTROL_TOKEN: ${CONTROL_TOKEN:?set CONTROL_TOKEN in .env}
+      PROFILES_VOLUME: mvpn-profiles
+      WORKER_NETWORK: mvpn-net
+      TZ: Asia/Kolkata
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - profiles:/profiles
+    networks: [mvpn]
+
+volumes:
+  profiles:
+    name: mvpn-profiles
+
+networks:
+  mvpn:
+    name: mvpn-net

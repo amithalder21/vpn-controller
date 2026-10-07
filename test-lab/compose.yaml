@@ -1,0 +1,95 @@
+# Multi-OpenVPN POC: two independent VPN tunnels on one Docker host.
+#
+#   app-a --(shares netns)--> vpn-client-a ==tunnel==> vpn-server-a --> lan-a: secret-a
+#   app-b --(shares netns)--> vpn-client-b ==tunnel==> vpn-server-b --> lan-b: secret-b
+#
+# lan-a / lan-b are internal networks: the ONLY way in is through the matching VPN.
+# Both VPN servers deliberately use the same tunnel subnet (10.8.0.0/24) to show
+# that overlapping VPNs don't conflict, since each client has its own network stack.
+
+services:
+  # ---- simulated remote VPNs (replace with your real VPNs) ----
+  vpn-server-a:
+    build: ./server
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    sysctls: { net.ipv4.ip_forward: "1" }
+    volumes:
+      - ./server/server.conf:/etc/openvpn/server.conf:ro
+      - ./pki/a:/etc/openvpn/pki:ro
+    networks:
+      wan: { ipv4_address: 172.30.0.11 }
+      lan-a: { ipv4_address: 172.31.1.2 }
+
+  secret-a:
+    image: traefik/whoami
+    command: ["--name", "SECRET-A (only reachable via VPN A)"]
+    networks:
+      lan-a: { ipv4_address: 172.31.1.10 }
+
+  vpn-server-b:
+    build: ./server
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    sysctls: { net.ipv4.ip_forward: "1" }
+    volumes:
+      - ./server/server.conf:/etc/openvpn/server.conf:ro
+      - ./pki/b:/etc/openvpn/pki:ro
+    networks:
+      wan: { ipv4_address: 172.30.0.12 }
+      lan-b: { ipv4_address: 172.31.2.2 }
+
+  secret-b:
+    image: traefik/whoami
+    command: ["--name", "SECRET-B (only reachable via VPN B)"]
+    networks:
+      lan-b: { ipv4_address: 172.31.2.10 }
+
+  # ---- the part you'd actually deploy: one gluetun client per VPN ----
+  vpn-client-a:
+    image: qmcgaw/gluetun:latest
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    environment:
+      VPN_SERVICE_PROVIDER: custom
+      VPN_TYPE: openvpn
+      OPENVPN_CUSTOM_CONFIG: /gluetun/custom.ovpn
+    volumes:
+      - ./client-a.ovpn:/gluetun/custom.ovpn:ro
+    networks: [wan]
+    depends_on: [vpn-server-a]
+
+  app-a:
+    image: curlimages/curl:latest
+    network_mode: "service:vpn-client-a"
+    command: ["sleep", "infinity"]
+    depends_on: [vpn-client-a]
+
+  vpn-client-b:
+    image: qmcgaw/gluetun:latest
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    environment:
+      VPN_SERVICE_PROVIDER: custom
+      VPN_TYPE: openvpn
+      OPENVPN_CUSTOM_CONFIG: /gluetun/custom.ovpn
+    volumes:
+      - ./client-b.ovpn:/gluetun/custom.ovpn:ro
+    networks: [wan]
+    depends_on: [vpn-server-b]
+
+  app-b:
+    image: curlimages/curl:latest
+    network_mode: "service:vpn-client-b"
+    command: ["sleep", "infinity"]
+    depends_on: [vpn-client-b]
+
+networks:
+  wan:
+    ipam: { config: [{ subnet: 172.30.0.0/24 }] }
+  lan-a:
+    internal: true
+    ipam: { config: [{ subnet: 172.31.1.0/24 }] }
+  lan-b:
+    internal: true
+    ipam: { config: [{ subnet: 172.31.2.0/24 }] }
