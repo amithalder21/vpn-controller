@@ -67,6 +67,13 @@
   button.sm { padding: 4px 9px; font-size: 12.5px; border-radius: 7px; }
   button:disabled { opacity: .5; cursor: not-allowed; }
   .btn-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  /* uniform icon action buttons */
+  .actions-group { display: inline-flex; gap: 3px; align-items: center; justify-content: flex-end; }
+  .iact { width: 30px; height: 30px; padding: 0; display: inline-grid; place-items: center; border-radius: 8px; color: var(--muted); border-color: transparent; background: transparent; }
+  .iact:hover { background: var(--panel2); color: var(--accent); border-color: var(--line); }
+  .iact.danger:hover { color: var(--bad); border-color: var(--bad); background: var(--bad-bg); }
+  .iact svg { width: 16px; height: 16px; display: block; }
+  .act-sep { width: 1px; height: 18px; background: var(--line); margin: 0 3px; }
 
   .pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 99px; font-size: 12px; font-weight: 550; border: 1px solid transparent; }
   .pill .d { width: 7px; height: 7px; border-radius: 50%; }
@@ -289,6 +296,15 @@ const $ = s => document.querySelector(s);
 let token = ''; try { token = localStorage.getItem('mvpn-token') || ''; } catch (e) {}
 $('#token').value = token;
 
+const _svg = p => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+const ICON = {
+  reconnect: _svg('<path d="M23 4v6h-6"/><path d="M20.5 15a9 9 0 1 1-2.1-9.4L23 10"/>'),
+  globe: _svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
+  logs: _svg('<path d="M4 6h16M4 12h16M4 18h10"/>'),
+  pencil: _svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>'),
+  trash: _svg('<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/>'),
+};
+
 /* ---------- helpers ---------- */
 function toast(msg, kind = 'info', ms = 4200) {
   const t = el('div', { class: 'toast ' + kind }, msg);
@@ -409,9 +425,14 @@ function render() {
           [ip.city, ip.country].filter(Boolean).join(', '),
           ip.org ? el('div', { class: 'muted', style: 'font-size:11.5px' }, ip.org) : '');
     const running = w.exists && w.vpn === 'running';
-    const iconBtn = (label, title, fn, cls = 'ghost sm') => el('button', { class: cls, title, onclick: async ev => {
-      ev.target.disabled = true; try { await fn(); } catch (e) { toast(w.name + ': ' + e.message, 'err'); } ev.target.disabled = false; refresh();
-    } }, label);
+    const actBtn = (label, title, fn, cls = 'iact') => {
+      const b = el('button', { class: cls, title, onclick: async ev => {
+        const btn = ev.currentTarget; btn.disabled = true;
+        try { await fn(); } catch (e) { toast(w.name + ': ' + e.message, 'err'); } btn.disabled = false; refresh();
+      } });
+      if (label.startsWith('<svg')) b.innerHTML = label; else b.textContent = label;
+      return b;
+    };
     // tags row
     const tagEls = (w.tags || []).map(t => el('span', { class: 'tag-chip', title: 'filter by #' + t, onclick: () => { $('#tagFilter').value = t; filterTag = t; render(); } }, '#' + t));
     const tagsRow = el('div', { class: 'tags' }, ...tagEls,
@@ -428,15 +449,16 @@ function render() {
       statusCell,
       el('td', { class: 'mono' }, ip.ip || ''),
       el('td', {}, loc),
-      el('td', { style: 'text-align:right' }, el('div', { class: 'btn-row', style: 'justify-content:flex-end' },
-        running ? iconBtn('Disconnect', 'Stop this connection', () => api('POST', `/api/workers/${w.name}/stop`))
-                : iconBtn('Connect', 'Start this connection', () => api('POST', `/api/workers/${w.name}/start`), 'primary sm'),
-        iconBtn('Reconnect', 'Restart this connection', () => api('POST', `/api/workers/${w.name}/restart`)),
-        iconBtn('IP', 'Check exit IP', () => api('POST', `/api/workers/${w.name}/ip`)),
-        el('button', { class: 'ghost sm', title: 'Live logs', onclick: () => streamLogs(w.name) }, 'Logs'),
-        iconBtn('✎', 'Rename', () => renameConn(w.name), 'ghost sm'),
-        iconBtn('🗑', 'Delete this connection (profile + containers)',
-          () => confirm(`Delete connection “${w.name}”?\nThis removes its profile and containers.`) && api('DELETE', `/api/profiles/${w.name}`), 'danger sm'),
+      el('td', { style: 'text-align:right' }, el('div', { class: 'actions-group' },
+        running ? actBtn('Disconnect', 'Stop this connection', () => api('POST', `/api/workers/${w.name}/stop`), 'sm')
+                : actBtn('Connect', 'Start this connection', () => api('POST', `/api/workers/${w.name}/start`), 'primary sm'),
+        el('span', { class: 'act-sep' }),
+        actBtn(ICON.reconnect, 'Reconnect', () => api('POST', `/api/workers/${w.name}/restart`)),
+        actBtn(ICON.globe, 'Check exit IP', () => api('POST', `/api/workers/${w.name}/ip`)),
+        el('button', { class: 'iact', title: 'Live logs', html: ICON.logs, onclick: () => streamLogs(w.name) }),
+        actBtn(ICON.pencil, 'Rename', () => renameConn(w.name)),
+        actBtn(ICON.trash, 'Delete connection (profile + containers)',
+          () => confirm(`Delete connection “${w.name}”?\nThis removes its profile and containers.`) && api('DELETE', `/api/profiles/${w.name}`), 'iact danger'),
       )),
     );
   }));
@@ -654,7 +676,8 @@ $('#settingsBtn').onclick = () => { const s = $('#settings'); s.style.display = 
 $('#saveToken').onclick = () => {
   token = $('#token').value.trim();
   try { localStorage.setItem('mvpn-token', token); } catch (e) {}
-  setConn('wait', 'connecting…'); refresh(); refreshScripts();
+  if (token) $('#settings').style.display = 'none';
+  setConn('wait', 'connecting…'); refresh(); refreshScripts(); loadSettings();
   toast('Token saved', 'ok', 1800);
 };
 if (!token) $('#settings').style.display = '';
