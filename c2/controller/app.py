@@ -805,6 +805,25 @@ def api_set_settings():
     return api_get_settings()
 
 
+@app.get("/api/metrics")
+def api_metrics():
+    limit = min(int(request.args.get("limit", 120)), 2880)
+    try:
+        rows = list(reversed(rdb.xrevrange("mvpn:metrics", count=limit)))
+    except redis.RedisError:
+        rows = []
+    out = []
+    for _id, f in rows:
+        pt = {}
+        for k, v in f.items():
+            try:
+                pt[k] = int(v) if k in ("ts", "conns", "online", "healthy", "countries") else float(v)
+            except (ValueError, TypeError):
+                pt[k] = v
+        out.append(pt)
+    return jsonify(out)
+
+
 @app.get("/api/events")
 def api_events():
     limit = min(int(request.args.get("limit", 60)), 500)
@@ -948,6 +967,37 @@ def _rotate_once():
                 pass
 
 
+def _metrics_once():
+    """Snapshot fleet-wide metrics for the Overview sparklines (~48h at 60s)."""
+    names = list_profiles()
+    online = healthy = 0
+    countries = set()
+    rx = tx = 0.0
+    for name in names:
+        st = stats_cache.get(name)
+        if st:
+            rx += st.get("rx_mb", 0) or 0
+            tx += st.get("tx_mb", 0) or 0
+        info = ip_cache.get(name)
+        if info and info.get("country_iso"):
+            countries.add(info["country_iso"])
+        vpn = get(name, "vpn")
+        if vpn:
+            try:
+                vpn.reload()
+                state = vpn.attrs["State"]
+                if state["Status"] == "running":
+                    online += 1
+                    if (state.get("Health") or {}).get("Status") == "healthy":
+                        healthy += 1
+            except Exception:
+                pass
+    rec = {"ts": str(int(time.time())), "conns": str(len(names)), "online": str(online),
+           "healthy": str(healthy), "countries": str(len(countries)),
+           "rx": str(round(rx, 1)), "tx": str(round(tx, 1))}
+    _rtry(lambda: rdb.xadd("mvpn:metrics", rec, maxlen=2880, approximate=True))
+
+
 def _loop(fn, interval):
     while True:
         try:
@@ -963,4 +1013,5 @@ if __name__ == "__main__":
     threading.Thread(target=_loop, args=(_heal_once, HEAL_INTERVAL), daemon=True).start()
     threading.Thread(target=_loop, args=(_stats_once, 8), daemon=True).start()
     threading.Thread(target=_loop, args=(_rotate_once, 30), daemon=True).start()
+    threading.Thread(target=_loop, args=(_metrics_once, 60), daemon=True).start()
     app.run(host="0.0.0.0", port=8080, threaded=True)

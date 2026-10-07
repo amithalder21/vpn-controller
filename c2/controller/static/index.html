@@ -61,6 +61,22 @@
   .sec-h .sp { flex: 1; }
   .sec-b { padding: 14px 16px; }
 
+  /* KPI cards (overview) */
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  @media (max-width: 860px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 15px; box-shadow: var(--shadow); }
+  .kpi-top { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; font-weight: 500; }
+  .kpi-ico { width: 26px; height: 26px; border-radius: 7px; background: var(--accent-weak); color: var(--accent); display: grid; place-items: center; flex: none; }
+  .kpi-ico svg { width: 15px; height: 15px; }
+  .kpi-val { font-size: 24px; font-weight: 680; letter-spacing: -.02em; margin-top: 10px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .kpi-val small { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+  .delta { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; }
+  .delta.up { color: var(--ok); background: var(--ok-bg); } .delta.down { color: var(--bad); background: var(--bad-bg); } .delta.flat { color: var(--muted); background: var(--panel2); }
+  .spark-wrap { margin-top: 10px; height: 36px; }
+  .spark-wrap svg { width: 100%; height: 100%; display: block; }
+  .chartwrap { width: 100%; height: 220px; }
+  .chartwrap svg { width: 100%; height: 100%; display: block; }
+
   /* stats */
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
   @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
@@ -205,7 +221,8 @@
   <aside class="sidebar">
     <div class="brand"><span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2.6"/><circle cx="6" cy="6" r="1.8"/><circle cx="18" cy="6" r="1.8"/><circle cx="12" cy="19.5" r="1.8"/><path d="M10.2 10.2 7.3 7.3M13.8 10.2l2.9-2.9M12 14.6v3.1"/></svg></span><span>Fleet</span></div>
     <nav class="nav">
-      <button class="nav-item active" data-view="connections"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg><span>Connections</span><span class="nav-badge" id="navIssues"></span></button>
+      <button class="nav-item active" data-view="overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/><rect x="3" y="14" width="8" height="7" rx="1.5"/></svg><span>Overview</span></button>
+      <button class="nav-item" data-view="connections"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg><span>Connections</span><span class="nav-badge" id="navIssues"></span></button>
       <button class="nav-item" data-view="run"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5l7 7-7 7"/><path d="M13 19h7"/></svg><span>Run script</span></button>
       <button class="nav-item" data-view="activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg><span>Activity</span></button>
       <button class="nav-item" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 2.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H7a1.6 1.6 0 0 0 1-1.5V1a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V7a1.6 1.6 0 0 0 1.5 1H23a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg><span>Settings</span></button>
@@ -225,8 +242,21 @@
     </header>
     <div class="view-wrap">
 
+      <!-- OVERVIEW -->
+      <section id="view-overview" class="view active">
+        <div class="kpis" id="kpis"></div>
+        <section class="panel">
+          <div class="sec-h"><h2>Fleet throughput</h2><span class="sp"></span><span class="count-chip" id="thrTotal"></span></div>
+          <div class="sec-b"><div class="chartwrap" id="thrChart"><div class="empty">Collecting data…</div></div></div>
+        </section>
+        <section class="panel">
+          <div class="sec-h"><h2>Online connections</h2><span class="sp"></span><span class="count-chip">last ~2h</span></div>
+          <div class="sec-b"><div class="chartwrap" id="onlineChart" style="height:140px"></div></div>
+        </section>
+      </section>
+
       <!-- CONNECTIONS -->
-      <section id="view-connections" class="view active">
+      <section id="view-connections" class="view">
         <div class="stats">
           <div class="stat"><div class="n" id="stProfiles">—</div><div class="l">Connections</div></div>
           <div class="stat"><div class="n" id="stRunning">—</div><div class="l">Online</div></div>
@@ -460,11 +490,13 @@ document.addEventListener('keydown', e => {
 });
 
 /* ---------- view router ---------- */
-const TITLES = { connections: 'Connections', run: 'Run script', activity: 'Activity', settings: 'Settings' };
+const VIEWS = ['overview', 'connections', 'run', 'activity', 'settings'];
+const TITLES = { overview: 'Overview', connections: 'Connections', run: 'Run script', activity: 'Activity', settings: 'Settings' };
 function go(v) {
-  ['connections', 'run', 'activity', 'settings'].forEach(x => $('#view-' + x).classList.toggle('active', x === v));
+  VIEWS.forEach(x => $('#view-' + x).classList.toggle('active', x === v));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === v));
   $('#viewTitle').textContent = TITLES[v];
+  if (v === 'overview') loadMetrics();
   closeMenu(); window.scrollTo(0, 0);
 }
 document.querySelectorAll('.nav-item').forEach(n => n.addEventListener('click', () => go(n.dataset.view)));
@@ -512,6 +544,7 @@ async function refresh() {
     renderStats(plist, workers);
     setConn('live', 'connected');
     refreshFeed();
+    if ($('#view-overview').classList.contains('active')) loadMetrics();
   } catch (e) {
     if (e.status === 401) { setConn('err', 'bad / missing token'); $('#workers').replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'Add your control token in Settings to connect.'))); }
     else { setConn('err', 'offline'); }
@@ -840,6 +873,63 @@ $('#logFilter').addEventListener('input', renderLogs);
 $('#clearLogs').onclick = () => { logLines = []; renderLogs(); };
 $('#closeLogs').onclick = () => { if (logSrc) logSrc.close(); $('#logsBox').style.display = 'none'; };
 
+/* ---------- overview: charts & KPIs ---------- */
+const KICON = {
+  conns: _svg('<rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/>'),
+  online: _svg('<path d="M5 12.5a7 7 0 0 1 14 0"/><path d="M2 9a11 11 0 0 1 20 0"/><circle cx="12" cy="18" r="1.5"/>'),
+  healthy: _svg('<path d="M20 6 9 17l-5-5"/>'),
+  data: _svg('<path d="M12 3v18"/><path d="M7 8l5-5 5 5"/><path d="M7 16l5 5 5-5"/>'),
+};
+let _gid = 0;
+function chartSVG(vals, { w = 800, h = 200, color = 'var(--accent)', dot = false } = {}) {
+  vals = (vals || []).filter(v => typeof v === 'number' && isFinite(v));
+  if (vals.length < 2) return '<div class="empty">Collecting data…</div>';
+  const gid = 'cg' + (++_gid);
+  const min = Math.min(...vals), max = Math.max(...vals), rng = (max - min) || 1;
+  const X = i => i / (vals.length - 1) * w, Y = v => h - 3 - ((v - min) / rng) * (h - 8);
+  const pts = vals.map((v, i) => [X(i), Y(v)]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const area = `${line} L ${w} ${h} L 0 ${h} Z`;
+  const last = pts[pts.length - 1];
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color:${color};stop-opacity:.20"/><stop offset="1" style="stop-color:${color};stop-opacity:0"/>
+    </linearGradient></defs>
+    <path d="${area}" style="fill:url(#${gid})"/>
+    <path d="${line}" style="fill:none;stroke:${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+    ${dot ? `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="3" style="fill:${color}" vector-effect="non-scaling-stroke"/>` : ''}
+  </svg>`;
+}
+function deltaBadge(n) {
+  if (n > 0) return el('span', { class: 'delta up' }, '↑ ' + n);
+  if (n < 0) return el('span', { class: 'delta down' }, '↓ ' + Math.abs(n));
+  return el('span', { class: 'delta flat' }, '0');
+}
+function kpiCard(icon, label, value, sub, deltaN, series, color) {
+  return el('div', { class: 'kpi' },
+    el('div', { class: 'kpi-top' }, el('span', { class: 'kpi-ico', html: icon }), label),
+    el('div', { class: 'kpi-val' }, value, sub ? el('small', {}, sub) : '', deltaBadge(deltaN)),
+    el('div', { class: 'spark-wrap', html: chartSVG(series, { w: 150, h: 36, color }) }));
+}
+const fmtData = mb => mb >= 1024 ? (mb / 1024).toFixed(2) + ' GB' : (mb || 0).toFixed(1) + ' MB';
+async function loadMetrics() {
+  let m = [];
+  try { m = await api('GET', '/api/metrics?limit=120'); } catch (e) { return; }
+  const box = $('#kpis');
+  if (!m.length) { box.replaceChildren(el('div', { class: 'muted', style: 'padding:6px' }, 'Collecting metrics…')); return; }
+  const last = m[m.length - 1], first = m[0];
+  const tot = m.map(p => (p.rx || 0) + (p.tx || 0));
+  box.replaceChildren(
+    kpiCard(KICON.conns, 'Connections', String(last.conns), '', last.conns - first.conns, m.map(p => p.conns), 'var(--accent)'),
+    kpiCard(KICON.online, 'Online', String(last.online), 'of ' + last.conns, last.online - first.online, m.map(p => p.online), '#0ea5a4'),
+    kpiCard(KICON.healthy, 'Healthy', String(last.healthy), '', last.healthy - first.healthy, m.map(p => p.healthy), 'var(--ok)'),
+    kpiCard(KICON.data, 'Data transferred', fmtData(tot[tot.length - 1]), '', Math.round(tot[tot.length - 1] - tot[0]), tot, '#7c5cff'),
+  );
+  $('#thrChart').innerHTML = chartSVG(tot, { w: 900, h: 200, color: 'var(--accent)', dot: true });
+  $('#thrTotal').textContent = fmtData(last.rx + last.tx) + ' total';
+  $('#onlineChart').innerHTML = chartSVG(m.map(p => p.online), { w: 900, h: 140, color: '#0ea5a4', dot: true });
+}
+
 /* token */
 $('#saveToken').onclick = () => {
   token = $('#token').value.trim();
@@ -850,7 +940,7 @@ $('#saveToken').onclick = () => {
 };
 
 /* boot */
-go(token ? 'connections' : 'settings');
+go(token ? 'overview' : 'settings');
 refresh(); refreshScripts(); loadSettings();
 setInterval(refresh, 5000);
 </script>
