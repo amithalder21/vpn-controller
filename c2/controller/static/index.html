@@ -565,11 +565,12 @@ function render() {
     // NAME — name + tags; server endpoint moved to a hover tooltip
     const tagEls = (w.tags || []).map(t => el('span', { class: 'tag-chip', title: 'filter by #' + t, onclick: () => { $('#tagFilter').value = t; filterTag = t; render(); } }, '#' + t));
     const serverTip = `${p.remote || ''}${p.proto ? ' · ' + p.proto.toUpperCase() : ''}`.trim();
+    const rotateChip = w.rotate_min ? el('span', { class: 'tag-chip', style: 'background:var(--panel2);color:var(--muted)', title: `Auto-rotates exit IP every ${w.rotate_min}m` }, `⟳ ${w.rotate_min}m`) : '';
     const nameCell = el('td', { title: serverTip },
       el('div', { style: 'display:flex;align-items:center;gap:7px;flex-wrap:wrap' },
         el('span', { class: 'cname' }, w.name),
         w.gaveup ? el('span', { class: 'attn', title: 'Auto-heal gave up — reconnect to retry' }, 'needs attention') : '',
-        ...tagEls));
+        rotateChip, ...tagEls));
 
     // EXIT — one line: flag + country · IP
     let exitCell;
@@ -580,9 +581,10 @@ function render() {
       el('span', { class: 'csub mono', style: 'margin-left:8px' }, ip.ip));
     else exitCell = el('td', {}, el('span', { class: 'muted' }, (running && w.health !== 'unhealthy') ? 'checking…' : '—'));
 
-    // STATUS — pill + uptime inline
+    // STATUS — pill + uptime inline; data usage in tooltip
     const up = running ? uptime(w.started_at) : '';
-    const statusCell = el('td', {}, statusPill(w), up ? el('span', { class: 'csub', style: 'margin-left:8px' }, up) : '');
+    const dataTip = st && (st.rx_mb != null) ? `Data: ↓ ${st.rx_mb} MB  ↑ ${st.tx_mb} MB` : '';
+    const statusCell = el('td', { title: dataTip }, statusPill(w), up ? el('span', { class: 'csub', style: 'margin-left:8px' }, up) : '');
 
     // ACTIONS — compact power toggle + overflow menu
     const power = el('button', { class: 'pwr' + (running ? ' on' : ''), title: running ? 'Disconnect' : 'Connect', html: ICON.power,
@@ -591,9 +593,12 @@ function render() {
       e.stopPropagation();
       openMenu(e.currentTarget, [
         { label: 'Reconnect', fn: run(() => api('POST', `/api/workers/${w.name}/restart`)) },
+        { label: 'Rotate exit IP', fn: () => { api('POST', `/api/workers/${w.name}/rotate`).then(() => toast(`${w.name}: rotating exit IP…`, 'ok')).catch(e => toast(e.message, 'err')); } },
         { label: 'Check exit IP', fn: run(() => api('POST', `/api/workers/${w.name}/ip`)) },
+        { label: 'Test exit (leak check)', fn: () => leakTest(w.name) },
         { label: 'Live logs', fn: () => streamLogs(w.name) },
         { sep: true },
+        { label: w.rotate_min ? `Auto-rotate: every ${w.rotate_min}m` : 'Auto-rotate…', fn: () => setRotate(w) },
         { label: 'Edit tags…', fn: () => editTags(w) },
         { label: 'Rename…', fn: () => renameConn(w.name) },
         { sep: true },
@@ -617,6 +622,23 @@ async function renameConn(name) {
   const to = prompt(`Rename “${name}” to:`, name);
   if (!to || to === name) return;
   try { await api('POST', `/api/profiles/${name}/rename`, { to }); selected.delete(name); toast(`Renamed to ${to}`, 'ok'); } catch (e) { toast(e.message, 'err'); }
+  refresh();
+}
+async function leakTest(name) {
+  toast(`${name}: testing exit…`, 'info', 1500);
+  try {
+    const r = await api('POST', `/api/workers/${name}/leaktest`);
+    r.pass ? toast(`${name}: ✓ tunnelled — exit ${r.exit_ip} (${r.country || '?'})`, 'ok', 5000)
+           : toast(`${name}: ✗ ${r.reason}`, 'err', 6000);
+  } catch (e) { toast(e.message, 'err'); }
+  refresh();
+}
+async function setRotate(w) {
+  const cur = w.rotate_min || 0;
+  const val = prompt(`Auto-rotate exit IP for “${w.name}” every how many minutes?\n(0 = off)`, String(cur));
+  if (val === null) return;
+  const minutes = Math.max(0, parseInt(val, 10) || 0);
+  try { await api('POST', `/api/workers/${w.name}/rotate-schedule`, { minutes }); toast(minutes ? `Auto-rotate every ${minutes}m` : 'Auto-rotate off', 'ok'); } catch (e) { toast(e.message, 'err'); }
   refresh();
 }
 function syncSelAll() {
