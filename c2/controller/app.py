@@ -935,6 +935,30 @@ def _stats_once():
             continue
 
 
+def _ipcheck_once():
+    """Keep each healthy tunnel's exit IP fresh (~every 10s) so the UI always
+    reflects the real egress — never a stale IP while sending traffic."""
+    now = time.time()
+    for name in list_profiles():
+        vpn = get(name, "vpn")
+        if not vpn:
+            continue
+        try:
+            vpn.reload()
+            state = vpn.attrs["State"]
+            if state["Status"] != "running" or (state.get("Health") or {}).get("Status") != "healthy":
+                continue
+        except Exception:
+            continue
+        info = ip_cache.get(name)
+        if info and not info.get("error") and now - info.get("checked", 0) < 10:
+            continue
+        try:
+            check_ip(name)
+        except Exception:
+            pass
+
+
 def _metrics_once():
     """Snapshot fleet-wide metrics for the Overview sparklines (~48h at 60s)."""
     names = list_profiles()
@@ -980,5 +1004,6 @@ if __name__ == "__main__":
     os.makedirs(SCRIPTS_DIR, exist_ok=True)
     threading.Thread(target=_loop, args=(_heal_once, HEAL_INTERVAL), daemon=True).start()
     threading.Thread(target=_loop, args=(_stats_once, 8), daemon=True).start()
+    threading.Thread(target=_loop, args=(_ipcheck_once, 10), daemon=True).start()
     threading.Thread(target=_loop, args=(_metrics_once, 60), daemon=True).start()
     app.run(host="0.0.0.0", port=8080, threaded=True)
