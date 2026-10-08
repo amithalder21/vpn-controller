@@ -13,9 +13,10 @@ across all of them at once, and keep every tunnel healthy — from one dashboard
 ![API](https://img.shields.io/badge/API-token--auth%20JSON-5b8cff)
 ![Status](https://img.shields.io/badge/status-active-brightgreen)
 
-[Get started](#-get-started-in-60-seconds) ·
 [Features](#-features) ·
-[Plans](#-plans) ·
+[Use cases](#-use-cases) ·
+[Quickstart](#-quickstart) ·
+[Architecture](#-architecture) ·
 [API](#-api--integrations) ·
 [Security](#-security--trust)
 
@@ -23,23 +24,72 @@ across all of them at once, and keep every tunnel healthy — from one dashboard
 
 ---
 
-## Why teams use Flotilla
+## Overview
 
 Running one VPN is easy. Running **twenty** — each with its own exit IP, country,
 and health — turns into a mess of terminals, scripts, and guesswork. Flotilla
-makes a fleet of exits feel like a single product:
+makes a fleet of exits feel like a single system.
 
-- **One pane of glass.** Every exit's location, IP, ISP, health, uptime, data,
-  and live throughput — on one screen, refreshed automatically.
-- **Act on the whole fleet.** Connect, reconnect, tag, and run scripts across
-  all exits (or a selection) and stream the output live, per exit.
-- **Self-healing by default.** A watchdog reconnects dropped tunnels; a built-in
-  kill-switch firewall blocks any traffic that isn't tunnelled.
-- **Automate the boring parts.** Schedule jobs on a cron, review run history,
-  and get webhook alerts when something needs you.
+Each `.ovpn` profile becomes an isolated **exit**: its own tunnel, its own egress
+IP. From one control plane you see every exit on a live map, act on the whole
+fleet at once, run and schedule scripts, and let a watchdog keep tunnels healthy.
 
+- **One pane of glass** — every exit's location, IP, ISP, health, uptime, data,
+  and live throughput, refreshed automatically.
+- **Act on the whole fleet** — connect, reconnect, tag, and run scripts across all
+  exits (or a selection) with per-exit output streaming live.
+- **Self-healing** — a watchdog reconnects dropped tunnels; a kill-switch firewall
+  blocks any traffic that isn't tunnelled.
+- **Automate it** — schedule jobs on a cron, review run history, get webhook alerts.
+
+> Flotilla is **free, open, and self-hosted** — it runs on your own Docker host.
 > Everything in the UI is also a **token-authenticated JSON API**, so your
-> dashboards, CI, and scripts talk to the same control plane.
+> dashboards, CI, and scripts drive the same control plane.
+
+---
+
+## 🎯 Use cases
+
+Flotilla shines whenever you need to **do the same thing from many network
+vantage points at once — reliably, and from one place.**
+
+### Testing & QA
+- **Geo-testing** — verify your site/app/CDN serves the right content, prices,
+  language, and consent banners from many countries at once.
+- **Geo-blocking & licensing checks** — confirm region-locked content is blocked
+  (or allowed) exactly where it should be.
+- **CDN & DNS validation** — see which edge POP or DNS answer each region gets;
+  catch misrouting before customers do.
+- **Multi-region latency & uptime probes** — lightweight synthetic monitoring
+  without paying per-region for a probe network.
+
+### Ad, marketing & SEO verification
+- **Ad verification** — check campaigns render correctly and to the right audience
+  per country; spot cloaked or fraudulent creatives.
+- **SERP & localization checks** — see how search results and localized pages look
+  per region.
+- **Price & availability monitoring** — track how listings vary by geography.
+
+### Security & research
+- **Malware / URL detonation** — fetch suspicious URLs from disposable exits so
+  your real IP and network stay unexposed; the kill-switch fails **closed**.
+- **Authorized pentesting / red-team** — exercise your own perimeter from varied
+  source IPs; validate IP allow/deny lists and rate-limiting.
+- **Egress & leak validation** — the built-in leak test proves traffic truly exits
+  via the tunnel (exit IP ≠ host IP).
+
+### Infrastructure & operations
+- **Fleet operations** — one dashboard to connect, monitor, and heal many VPN
+  provider endpoints instead of juggling separate clients.
+- **Scheduled, distributed collection** — run legitimate data pulls across exits on
+  a cron, with run history and alerts (always within each site's ToS and the law).
+- **Resilient unattended egress** — auto-heal keeps tunnels up; webhooks ping you
+  only when something needs a human.
+
+> **Responsible use.** Flotilla is built for testing, monitoring, and research on
+> systems you own or are authorized to assess. The same multi-IP capability can be
+> abused (ban evasion, credential stuffing, ToS-violating scraping, fraud) — don't.
+> It is single-operator and localhost-only by default, not an abuse platform.
 
 ---
 
@@ -49,18 +99,18 @@ makes a fleet of exits feel like a single product:
 - Drag-and-drop `.ovpn` profiles — each becomes an isolated **exit** with its own
   tunnel and egress IP.
 - Memorable auto-generated names (e.g. `scarlet-beacon`); real country/IP shown
-  separately. Rename, tag, connect/disconnect/reconnect, and delete — individually
-  or in bulk.
+  separately. Rename, tag, connect/disconnect/reconnect, delete — individually or
+  in bulk.
 
 ### Observability
 - **Live world map** of every exit, plotted by egress country and colored by health.
-- **Overview dashboard** — KPI cards with trend arrows, a fleet-status donut,
-  a "data by exit" bar chart, and **live throughput** (MB/s) per exit and fleet-wide.
+- **Overview dashboard** — KPI cards with trend arrows, a fleet-status donut, a
+  "data by exit" bar chart, and **live throughput** (MB/s) per exit and fleet-wide.
 - **Live logs & metrics** streamed over SSE; history that replays after a reload.
 
 ### Automation
-- **Run scripts across the fleet** — inline command or uploaded `.sh`, targeting
-  all or selected exits, with per-exit output streaming live and one-click cancel.
+- **Run scripts across the fleet** — inline command or uploaded `.sh`, targeting all
+  or selected exits, per-exit output streaming live, one-click cancel.
 - **Schedules (cron)** — run any script on a schedule (presets or a custom 5-field
   expression); see next/last run, enable or pause, or run on demand.
 - **Job history** — browse recent runs and re-open their output.
@@ -90,9 +140,9 @@ picture.
 
 ---
 
-## 🏁 Get started in 60 seconds
+## 🏁 Quickstart
 
-Flotilla is self-hosted and runs anywhere Docker does.
+Flotilla runs anywhere Docker does.
 
 ```bash
 cd c2
@@ -106,35 +156,11 @@ Open **http://127.0.0.1:8088**, go to **Settings**, paste the token from `.env`,
 
 1. **Connections → drop your `.ovpn` files** (one exit per file).
 2. **Connect all** — a worker per profile comes up; exit IPs auto-populate.
-3. **Run script** → type a command, **Run on all connected**, and watch each
-   exit stream its output live.
+3. **Run script** → type a command, **Run on all connected**, and watch each exit
+   stream its output live.
 
-No real VPN provider handy? The [`test-lab/`](#-test-lab--self-contained-demo)
-spins up throwaway OpenVPN servers so you can see the isolation end-to-end.
-
----
-
-## ☁️ Plans
-
-Flotilla is **open-core**: the full self-hosted control plane is free. Managed
-cloud tiers (zero-ops hosting, SSO, teams) are on the way.
-
-| | **Community** | **Pro** · _cloud_ | **Enterprise** · _cloud_ |
-|---|---|---|---|
-| **Price** | Free · self-hosted | _Coming soon_ | _Let's talk_ |
-| Exits | Unlimited (your hardware) | Scaled pools | Scaled pools |
-| Live map, metrics, throughput | ✅ | ✅ | ✅ |
-| Run scripts + job history | ✅ | ✅ | ✅ |
-| Schedules (cron) | ✅ | ✅ | ✅ |
-| Auto-heal + webhook alerts | ✅ | ✅ | ✅ |
-| JSON API + SSE streaming | ✅ | ✅ | ✅ |
-| Managed hosting & updates | — | ✅ | ✅ |
-| SSO / RBAC + audit log | — | Roadmap | ✅ |
-| Rotating proxy pool | Roadmap | Roadmap | ✅ |
-| Support | Community / issues | Email | Priority + SLA |
-
-> Want managed hosting, SSO, or priority support?
-> **[Open an issue](https://github.com/amithalder21/vpn-controller/issues/new)** to join the waitlist.
+No real VPN provider handy? [`test-lab/`](#-test-lab--self-contained-demo) spins up
+throwaway OpenVPN servers so you can see the isolation end-to-end.
 
 ---
 
@@ -211,18 +237,27 @@ curl -s -X POST -H "X-Token: $TOK" -H 'Content-Type: application/json' \
 
 ---
 
-## 🛟 Auto-heal
+## ⚙️ Configuration
 
-A watchdog reconnects exits that are meant to be up but dropped or went
-unhealthy. Each connection has a **desired state** (set by Connect/Disconnect),
-so a manual Disconnect is never overridden. Restarts are capped
-(`HEAL_MAX_RESTARTS` within `HEAL_WINDOW`); past that the connection is flagged
-**needs attention** until you reconnect it. Set `WEBHOOK_URL` for a JSON POST on
-auto-heal / give-up.
+The controller is configured by environment variables (set in `c2/.env` or the
+compose Environment tab):
 
-**Controller env tunables:** `HEAL_INTERVAL` (20s) · `HEAL_GRACE` (120s) ·
-`HEAL_MAX_RESTARTS` (3) · `HEAL_WINDOW` (900s) · `WEBHOOK_URL` (unset) ·
-`TZ` (schedule times use this).
+| Variable             | Default | Purpose                                              |
+|----------------------|---------|------------------------------------------------------|
+| `CONTROL_TOKEN`      | —       | **required** — authorises every API call             |
+| `TZ`                 | `UTC`   | timezone that schedule cron times are evaluated in   |
+| `WEBHOOK_URL`        | unset   | JSON POST on auto-heal / give-up                     |
+| `HEAL_INTERVAL`      | `20s`   | watchdog tick                                        |
+| `HEAL_GRACE`         | `120s`  | how long an unhealthy tunnel is tolerated            |
+| `HEAL_MAX_RESTARTS`  | `3`     | restarts within the window before giving up          |
+| `HEAL_WINDOW`        | `900s`  | restart-count window                                 |
+
+### Auto-heal
+
+A watchdog reconnects exits that are meant to be up but dropped or went unhealthy.
+Each connection has a **desired state** (set by Connect/Disconnect), so a manual
+Disconnect is never overridden. Past `HEAL_MAX_RESTARTS` within `HEAL_WINDOW`, the
+connection is flagged **needs attention** until you reconnect it.
 
 ---
 
@@ -260,9 +295,8 @@ keys are git-ignored. Not needed to use Flotilla.
 
 - **Rotating proxy pool** — expose each exit as an HTTP/SOCKS proxy plus one
   round-robin endpoint, for real per-request IP rotation across the fleet.
-- **Managed cloud** — zero-ops hosting with SSO, RBAC + audit log, and teams.
 - WireGuard support · bulk `.zip` import (auto-named by country) ·
-  Prometheus metrics.
+  RBAC + audit log · Prometheus metrics.
 
 ---
 
@@ -275,7 +309,7 @@ a Debian worker image · and a dependency-free vanilla-JS single-page UI.
 
 ---
 
-**Ready to run your fleet from one place?**
-[Get started](#-get-started-in-60-seconds) · [Join the cloud waitlist](https://github.com/amithalder21/vpn-controller/issues/new)
+If Flotilla is useful to you, **star the repo** ⭐ and
+[open an issue](https://github.com/amithalder21/vpn-controller/issues) with ideas or bugs.
 
 </div>
