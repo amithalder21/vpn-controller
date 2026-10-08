@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import threading
 import time
 import uuid
@@ -36,6 +37,13 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://dragonfly:6379/0")
 JOB_TTL = 6 * 3600  # keep a job's streamed output in Dragonfly this long
 MAX_OUTPUT = 64 * 1024
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
+
+# ---- proxy pool: expose each exit as an HTTP proxy (gluetun's built-in :8888),
+#      published to 127.0.0.1 per exit, plus one round-robin front on the controller.
+PROXY_POOL = os.environ.get("PROXY_POOL", "on").lower() not in ("0", "off", "false", "no")
+PROXY_PORT_BASE = int(os.environ.get("PROXY_PORT_BASE", "12000"))  # per-exit host ports from here up
+PROXY_RR_PORT = int(os.environ.get("PROXY_RR_PORT", "18080"))      # round-robin listener (in-container)
+GLUETUN_PROXY_PORT = 8888  # gluetun HTTPPROXY listen port inside each exit's netns
 
 client = docker.from_env()
 pool = ThreadPoolExecutor(max_workers=32)
@@ -94,6 +102,32 @@ def setting_get(key, default):
 
 def setting_set(key, val):
     _rtry(lambda: rdb.hset("mvpn:settings", key, val))
+
+
+def proxy_port(name):
+    """Stable host port for this exit's HTTP proxy (persisted, allocated lazily)."""
+    cur = _rtry(lambda: rdb.hget("mvpn:proxyports", name))
+    if cur:
+        try:
+            return int(cur)
+        except ValueError:
+            pass
+    allp = _rtry(lambda: rdb.hgetall("mvpn:proxyports")) or {}
+    used = set()
+    for v in allp.values():
+        try:
+            used.add(int(v))
+        except ValueError:
+            pass
+    port = PROXY_PORT_BASE
+    while port in used:
+        port += 1
+    _rtry(lambda: rdb.hset("mvpn:proxyports", name, str(port)))
+    return port
+
+
+def proxy_port_del(name):
+    _rtry(lambda: rdb.hdel("mvpn:proxyports", name))
 
 def record_event(name, kind, detail=""):
     _rtry(lambda: rdb.xadd("mvpn:events",
@@ -324,6 +358,23 @@ def worker_status(name):
     hs = heal_state.get(name)
     out["restarts"] = hs["restarts"] if hs else 0
     out["gaveup"] = bool(hs and hs["gaveup"])
+    if PROXY_POOL:
+        published = None
+        if vpn:
+            pm = (vpn.attrs.get("NetworkSettings") or {}).get("Ports") or {}
+            b = pm.get(f"{GLUETUN_PROXY_PORT}/tcp")
+            if b:
+                try:
+                    published = int(b[0]["HostPort"])
+                except (KeyError, ValueError, IndexError, TypeError):
+                    published = None
+        # "active" = the container actually publishes the proxy port (recreated
+        # since the feature was enabled); "online" = reachable & healthy now.
+        out["proxy"] = {
+            "port": published if published else proxy_port(name),
+            "active": bool(published),
+            "online": bool(published and out.get("vpn") == "running" and out.get("health") == "healthy"),
+        }
     return out
 
 
@@ -331,18 +382,27 @@ def create_worker(name):
     ensure_image(VPN_IMAGE)
     ensure_image(APP_IMAGE)
     labels = {"mvpn.profile": name}
+    env = {
+        "VPN_SERVICE_PROVIDER": "custom",
+        "VPN_TYPE": "openvpn",
+        "OPENVPN_CUSTOM_CONFIG": profile_path(name),
+        "TZ": TZ,
+    }
+    ports = None
+    if PROXY_POOL:
+        # gluetun's own HTTP proxy, egressing through this exit's tunnel,
+        # published only on the host loopback at a stable per-exit port.
+        env["HTTPPROXY"] = "on"
+        env["HTTPPROXY_LOG"] = "off"
+        ports = {f"{GLUETUN_PROXY_PORT}/tcp": ("127.0.0.1", proxy_port(name))}
     vpn = client.containers.run(
         VPN_IMAGE,
         name=cname(name, "vpn"),
         detach=True,
         cap_add=["NET_ADMIN"],
         devices=["/dev/net/tun:/dev/net/tun"],
-        environment={
-            "VPN_SERVICE_PROVIDER": "custom",
-            "VPN_TYPE": "openvpn",
-            "OPENVPN_CUSTOM_CONFIG": profile_path(name),
-            "TZ": TZ,
-        },
+        environment=env,
+        ports=ports,
         volumes={PROFILES_VOLUME: {"bind": PROFILES_DIR, "mode": "ro"}},
         network=NETWORK,
         restart_policy={"Name": "unless-stopped"},
@@ -406,7 +466,99 @@ def remove_worker(name):
         c = get(name, role)
         if c:
             c.remove(force=True)
-    desired_del(name); heal_reset(name)
+    desired_del(name); heal_reset(name); proxy_port_del(name)
+
+
+# ---------- proxy pool: round-robin front ----------
+# Each exit's gluetun exposes an HTTP proxy on :8888 inside its netns, reachable
+# from the controller over the Docker network at <vpn-container-ip>:8888. The
+# round-robin front accepts a client on PROXY_RR_PORT and transparently relays
+# the whole connection to the next healthy exit's proxy (one exit per connection).
+
+def _exit_proxy_target(name):
+    """(_ip_, 8888) for a running exit on the Docker network, or None."""
+    vpn = get(name, "vpn")
+    if not vpn or (vpn.attrs.get("State") or {}).get("Status") != "running":
+        return None
+    nets = (vpn.attrs.get("NetworkSettings") or {}).get("Networks") or {}
+    net = nets.get(NETWORK) or next(iter(nets.values()), None)
+    ip = net.get("IPAddress") if net else None
+    return (ip, GLUETUN_PROXY_PORT) if ip else None
+
+
+_rr_lock = threading.Lock()
+_rr_i = 0
+
+def _rr_pick():
+    """Next healthy exit's (name, (ip, port)) in round-robin order, or None."""
+    cand = []
+    for n in list_profiles():
+        s = worker_status(n)
+        if s.get("vpn") == "running" and s.get("health") == "healthy":
+            t = _exit_proxy_target(n)
+            if t:
+                cand.append((n, t))
+    if not cand:
+        return None
+    global _rr_i
+    with _rr_lock:
+        pick = cand[_rr_i % len(cand)]
+        _rr_i += 1
+    return pick
+
+
+def _pump(src, dst):
+    try:
+        while True:
+            chunk = src.recv(65536)
+            if not chunk:
+                break
+            dst.sendall(chunk)
+    except OSError:
+        pass
+    finally:
+        for s in (src, dst):
+            try:
+                s.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+
+def _handle_rr(cli):
+    try:
+        pick = _rr_pick()
+        if not pick:
+            cli.sendall(b"HTTP/1.1 503 Service Unavailable\r\n\r\nno healthy exit\n")
+            return
+        _name, target = pick
+        try:
+            up = socket.create_connection(target, timeout=10)
+        except OSError:
+            cli.sendall(b"HTTP/1.1 502 Bad Gateway\r\n\r\nexit proxy unreachable\n")
+            return
+        t = threading.Thread(target=_pump, args=(cli, up), daemon=True)
+        t.start()
+        _pump(up, cli)
+    except OSError:
+        pass
+    finally:
+        try:
+            cli.close()
+        except OSError:
+            pass
+
+
+def _rr_server():
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("0.0.0.0", PROXY_RR_PORT))
+    srv.listen(128)
+    while True:
+        try:
+            cli, _ = srv.accept()
+        except OSError:
+            continue
+        threading.Thread(target=_handle_rr, args=(cli,), daemon=True).start()
     ip_cache.pop(name, None); stats_cache.pop(name, None); _stat_prev.pop(name, None)
     record_event(name, "removed")
 
@@ -993,6 +1145,21 @@ def api_set_settings():
     return api_get_settings()
 
 
+@app.get("/api/proxy")
+def api_proxy():
+    """Proxy-pool summary: whether it's on, the round-robin port, and per-exit ports."""
+    exits = []
+    if PROXY_POOL:
+        for n in list_profiles():
+            s = worker_status(n)
+            p = s.get("proxy") or {}
+            exits.append({"name": n, "port": p.get("port"),
+                          "active": p.get("active", False), "online": p.get("online", False)})
+    return jsonify(enabled=PROXY_POOL, rr_port=PROXY_RR_PORT,
+                   port_base=PROXY_PORT_BASE, scheme="http", host="127.0.0.1",
+                   exits=exits)
+
+
 # ---- scheduled jobs ----
 
 def _validate_source(body, cur=None):
@@ -1354,4 +1521,6 @@ if __name__ == "__main__":
     threading.Thread(target=_loop, args=(_ipcheck_once, 10), daemon=True).start()
     threading.Thread(target=_loop, args=(_metrics_once, 60), daemon=True).start()
     threading.Thread(target=_loop, args=(_schedules_once, 20), daemon=True).start()
+    if PROXY_POOL:
+        threading.Thread(target=_rr_server, daemon=True).start()
     app.run(host="0.0.0.0", port=8080, threaded=True)

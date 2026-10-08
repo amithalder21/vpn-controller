@@ -102,6 +102,15 @@ vantage points at once — reliably, and from one place.**
   separately. Rename, tag, connect/disconnect/reconnect, delete — individually or
   in bulk.
 
+### Proxy pool
+- **Each exit is an HTTP proxy** on `127.0.0.1` (gluetun's built-in proxy,
+  egressing through that exit's tunnel) — point any tool (browser, `curl`, Burp,
+  scanners) at a specific country.
+- **Round-robin endpoint** rotates across healthy exits per connection, for
+  per-connection IP rotation across the fleet.
+- Addresses and state are shown under **Settings → Proxy pool** (copy-ready).
+  Loopback-only by design; tunnel over SSH for remote use. Toggle with `PROXY_POOL`.
+
 ### Observability
 - **Live world map** of every exit, plotted by egress country and colored by health.
 - **Overview dashboard** — KPI cards with trend arrows, a fleet-status donut, a
@@ -225,6 +234,7 @@ All `/api/*` calls require `X-Token: <CONTROL_TOKEN>` (SSE endpoints take it as
 | `GET  /api/metrics`                     | recent fleet metric points (for the charts)                     |
 | `GET  /api/events`                      | recent activity                                                 |
 | `GET/POST /api/settings`                | read / toggle auto-heal                                         |
+| `GET  /api/proxy`                       | proxy-pool status: round-robin port + per-exit proxy ports      |
 | `GET/POST /api/schedules`               | list / create cron schedules `{"name","cron","script"\|"body","targets","timeout"}` |
 | `POST/DELETE /api/schedules/<id>`       | update (enable, cron, target, source…) / delete a schedule      |
 | `POST /api/schedules/<id>/run`          | run a schedule now → job id (tail via `/api/jobs/<id>/stream`)   |
@@ -254,6 +264,9 @@ compose Environment tab):
 | `HEAL_GRACE`         | `120s`  | how long an unhealthy tunnel is tolerated            |
 | `HEAL_MAX_RESTARTS`  | `3`     | restarts within the window before giving up          |
 | `HEAL_WINDOW`        | `900s`  | restart-count window                                 |
+| `PROXY_POOL`         | `on`    | expose each exit as an HTTP proxy + round-robin front |
+| `PROXY_PORT_BASE`    | `12000` | first host port for per-exit proxies (one per exit)  |
+| `PROXY_RR_PORT`      | `18080` | round-robin proxy port (published on 127.0.0.1)      |
 
 ### Auto-heal
 
@@ -296,8 +309,7 @@ keys are git-ignored. Not needed to use Flotilla.
 
 ## 🗺️ Roadmap
 
-- **Rotating proxy pool** — expose each exit as an HTTP/SOCKS proxy plus one
-  round-robin endpoint, for real per-request IP rotation across the fleet.
+- **SOCKS5 proxies** — alongside today's HTTP proxy pool, for tools that need SOCKS.
 - WireGuard support · bulk `.zip` import (auto-named by country) ·
   RBAC + audit log · Prometheus metrics.
 

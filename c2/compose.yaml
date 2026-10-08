@@ -31,6 +31,9 @@ services:
     depends_on: [dragonfly]
     ports:
       - "127.0.0.1:8088:8080"
+      # round-robin proxy front (one endpoint, rotates across healthy exits).
+      # Per-exit proxy ports are published dynamically by each exit on 127.0.0.1.
+      - "127.0.0.1:18080:18080"
     environment:
       CONTROL_TOKEN: ${CONTROL_TOKEN:?set CONTROL_TOKEN in .env}
       REDIS_URL: redis://dragonfly:6379/0
