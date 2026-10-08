@@ -509,7 +509,7 @@
           <div class="table-wrap">
             <table>
               <thead><tr><th>When</th><th>Script / command</th><th>Targets</th><th>Status</th><th style="text-align:right">Output</th></tr></thead>
-              <tbody id="jobHistory"><tr><td colspan="5" class="empty">No jobs yet.</td></tr></tbody>
+              <tbody id="jobHistory"><tr><td colspan="5" class="empty">No jobs yet — run a script or command to see results here.</td></tr></tbody>
             </table>
           </div>
         </section>
@@ -560,7 +560,7 @@
       <section id="view-activity" class="view">
         <section class="panel">
           <div class="sec-h"><h2>Activity</h2><span class="sp"></span><span class="count-chip">auto-heal &amp; actions</span></div>
-          <div class="sec-b"><div id="feed" class="feed"><div class="empty">No activity yet.</div></div></div>
+          <div class="sec-b"><div id="feed" class="feed"><div class="empty">No activity yet — connects, actions and auto-heals will show up here.</div></div></div>
         </section>
       </section>
 
@@ -571,7 +571,7 @@
           <div class="sec-b">
             <p class="muted" style="font-size:12.5px;margin:0 0 10px">Required for every API call. It authorises this browser to control the fleet — keep it secret and never expose the controller publicly without a proxy in front.</p>
             <div class="toolbar">
-              <input id="token" type="password" placeholder="paste token from c2/.env" autocomplete="off" style="flex:1;min-width:220px">
+              <input id="token" type="password" placeholder="Paste your control token" autocomplete="off" style="flex:1;min-width:220px">
               <button id="saveToken" class="primary">Save</button>
               <span class="muted" style="font-size:12px">stored in this browser only</span>
             </div>
@@ -1083,7 +1083,7 @@ async function refreshFeed() {
   try {
     const evs = await api('GET', '/api/events?limit=60');
     const feed = $('#feed');
-    if (!evs.length) { feed.replaceChildren(el('div', { class: 'empty' }, 'No activity yet.')); return; }
+    if (!evs.length) { feed.replaceChildren(el('div', { class: 'empty' }, 'No activity yet — connects, actions and auto-heals will show up here.')); return; }
     feed.replaceChildren(...evs.map(e => {
       const t = new Date((+e.ts) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       return el('div', { class: 'ev' }, el('span', { class: 't' }, t),
@@ -1129,7 +1129,7 @@ async function loadProxy() {
   const nOn = exits.filter(x => x.online).length;
   const cc = $('#proxyCount');
   if (cc) cc.textContent = exits.length ? `${nOn} of ${exits.length} online` : '';
-  if (!exits.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'No exits yet.'))); return; }
+  if (!exits.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'No exits in the pool yet — connect a tunnel to add one.'))); return; }
   tb.replaceChildren(...exits.map(x => {
     const addr = `${p.host}:${x.port}`;
     const inPool = x.pool !== false;
@@ -1673,7 +1673,7 @@ async function loadJobHistory() {
   const tb = $('#jobHistory'); if (!tb) return;
   try {
     const list = await api('GET', '/api/jobs?limit=50');
-    if (!list.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'No jobs yet.'))); return; }
+    if (!list.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'No jobs yet — run a script or command to see results here.'))); return; }
     tb.replaceChildren(...list.map(m => el('tr', {},
       el('td', { title: new Date(m.ts * 1000).toLocaleString() }, relTime(m.ts)),
       el('td', {}, el('span', { class: 'mono', style: 'font-size:12.5px' }, m.label || 'command')),
