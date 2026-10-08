@@ -44,7 +44,6 @@ stats_cache = {}     # profile -> {"cpu": %, "mem_mb": float, "rx_mb":..., "tx_m
 _stat_prev = {}      # profile -> (total_cpu, system_cpu)  for delta cpu%
 heal_state = {}      # profile -> {"restarts": int, "last": epoch, "gaveup": bool}
 unhealthy_since = {} # profile -> epoch when it first went unhealthy
-rotate_last = {}     # profile -> epoch of last auto-rotate
 
 # Auto-heal tuning (env-overridable)
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
@@ -86,14 +85,6 @@ def tags_set(name, tags):
 def tags_del(name):
     _rtry(lambda: rdb.hdel("mvpn:tags", name))
 
-def rotate_get(name):
-    return _rtry(lambda: rdb.hget("mvpn:rotate", name)) or 0
-
-def rotate_set(name, minutes):
-    if minutes and int(minutes) > 0:
-        _rtry(lambda: rdb.hset("mvpn:rotate", name, int(minutes)))
-    else:
-        _rtry(lambda: rdb.hdel("mvpn:rotate", name))
 
 def setting_get(key, default):
     v = _rtry(lambda: rdb.hget("mvpn:settings", key))
@@ -197,7 +188,6 @@ def worker_status(name):
     out["ipinfo"] = ip_cache.get(name)
     out["stats"] = stats_cache.get(name)
     out["leak"] = leak_cache.get(name)
-    out["rotate_min"] = int(rotate_get(name) or 0)
     out["desired"] = desired_get(name) or "down"
     out["tags"] = tags_get(name)
     hs = heal_state.get(name)
@@ -358,19 +348,6 @@ def leak_test(name):
     return res
 
 
-def rotate_ip(name):
-    """Reconnect to pull a fresh session/exit, then re-check the IP shortly after."""
-    old = (ip_cache.get(name) or {}).get("ip")
-    restart_worker(name)
-    record_event(name, "rotate", f"from {old}" if old else "")
-
-    def _recheck():
-        time.sleep(18)
-        info = check_ip(name)
-        if info.get("ip") and info["ip"] != old:
-            record_event(name, "rotated", f"{old} → {info['ip']}")
-    threading.Thread(target=_recheck, daemon=True).start()
-    return {"rotating": True, "old_ip": old}
 
 
 def fan_out(names, fn):
@@ -621,21 +598,12 @@ def api_worker_action(name, action):
         return jsonify(check_ip(name))
     if action == "leaktest":
         return jsonify(leak_test(name))
-    if action == "rotate":
-        return jsonify(rotate_ip(name))
     if action not in actions:
         abort(404, f"unknown action {action}")
     actions[action](name)
     return jsonify(worker_status(name))
 
 
-@app.post("/api/workers/<name>/rotate-schedule")
-def api_rotate_schedule(name):
-    name = clean_name(name)
-    body = request.get_json(silent=True) or {}
-    rotate_set(name, body.get("minutes", 0))
-    record_event(name, "rotate-schedule", f"{rotate_get(name)}m" if rotate_get(name) else "off")
-    return jsonify(name=name, rotate_min=int(rotate_get(name) or 0))
 
 
 @app.delete("/api/workers/<name>")
@@ -951,22 +919,6 @@ def _stats_once():
             continue
 
 
-def _rotate_once():
-    """Auto-rotate exit IP for connections with a rotation interval set."""
-    now = time.time()
-    for name in list_profiles():
-        mins = int(rotate_get(name) or 0)
-        if not mins or desired_get(name) != "up":
-            continue
-        last = rotate_last.get(name, 0)
-        if now - last >= mins * 60:
-            rotate_last[name] = now
-            try:
-                rotate_ip(name)
-            except Exception:
-                pass
-
-
 def _metrics_once():
     """Snapshot fleet-wide metrics for the Overview sparklines (~48h at 60s)."""
     names = list_profiles()
@@ -1012,6 +964,5 @@ if __name__ == "__main__":
     os.makedirs(SCRIPTS_DIR, exist_ok=True)
     threading.Thread(target=_loop, args=(_heal_once, HEAL_INTERVAL), daemon=True).start()
     threading.Thread(target=_loop, args=(_stats_once, 8), daemon=True).start()
-    threading.Thread(target=_loop, args=(_rotate_once, 30), daemon=True).start()
     threading.Thread(target=_loop, args=(_metrics_once, 60), daemon=True).start()
     app.run(host="0.0.0.0", port=8080, threaded=True)

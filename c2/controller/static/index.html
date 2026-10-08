@@ -622,12 +622,11 @@ function render() {
     // NAME — name + tags; server endpoint moved to a hover tooltip
     const tagEls = (w.tags || []).map(t => el('span', { class: 'tag-chip', title: 'filter by #' + t, onclick: e => { e.stopPropagation(); $('#tagFilter').value = t; filterTag = t; render(); } }, '#' + t));
     const serverTip = `${p.remote || ''}${p.proto ? ' · ' + p.proto.toUpperCase() : ''}`.trim();
-    const rotateChip = w.rotate_min ? el('span', { class: 'tag-chip', style: 'background:var(--panel2);color:var(--muted)', title: `Auto-rotates exit IP every ${w.rotate_min}m` }, `⟳ ${w.rotate_min}m`) : '';
     const nameCell = el('td', { title: serverTip },
       el('div', { style: 'display:flex;align-items:center;gap:7px;flex-wrap:wrap' },
         el('span', { class: 'cname' }, w.name),
         w.gaveup ? el('span', { class: 'attn', title: 'Auto-heal gave up — reconnect to retry' }, 'needs attention') : '',
-        rotateChip, ...tagEls));
+        ...tagEls));
 
     // EXIT — one line: flag + country · IP
     let exitCell;
@@ -683,15 +682,6 @@ async function leakTest(name) {
   } catch (e) { toast(e.message, 'err'); }
   refresh();
 }
-async function setRotate(w) {
-  const cur = w.rotate_min || 0;
-  const val = prompt(`Auto-rotate exit IP for “${w.name}” every how many minutes?\n(0 = off)`, String(cur));
-  if (val === null) return;
-  const minutes = Math.max(0, parseInt(val, 10) || 0);
-  try { await api('POST', `/api/workers/${w.name}/rotate-schedule`, { minutes }); toast(minutes ? `Auto-rotate every ${minutes}m` : 'Auto-rotate off', 'ok'); } catch (e) { toast(e.message, 'err'); }
-  refresh();
-}
-
 /* ---------- connection detail drawer ---------- */
 let currentDetail = null;
 function openDetail(name) {
@@ -716,7 +706,6 @@ function renderDetail() {
     fact('Data used', st && st.rx_mb != null ? `↓ ${st.rx_mb} MB · ↑ ${st.tx_mb} MB` : '—'),
     fact('Server', el('span', { class: 'mono' }, `${p.remote || '?'}${p.proto ? ' · ' + p.proto.toUpperCase() : ''}`)),
     fact('ISP / ASN', ip.org ? el('span', { class: 'muted' }, ip.org) : '—'),
-    fact('Auto-rotate', w.rotate_min ? `every ${w.rotate_min} min` : 'off'),
     fact('Restarts', String(w.restarts || 0)),
     fact('Tags', (w.tags && w.tags.length) ? el('span', { class: 'tags' }, ...w.tags.map(t => el('span', { class: 'tag-chip' }, '#' + t))) : el('span', { class: 'muted' }, 'none')),
   );
@@ -728,11 +717,9 @@ function renderDetail() {
               : btn('Connect', run(() => api('POST', `/api/workers/${w.name}/start`)), 'primary sm'),
       btn('Reconnect', run(() => api('POST', `/api/workers/${w.name}/restart`))),
       btn('Live logs', () => streamLogs(w.name)))),
-    el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Exit IP'), el('div', { class: 'arow' },
-      btn('Rotate exit IP', () => { api('POST', `/api/workers/${w.name}/rotate`).then(() => toast(`${w.name}: rotating…`, 'ok')).catch(e => toast(e.message, 'err')); }),
+    el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Exit'), el('div', { class: 'arow' },
       btn('Check exit IP', run(() => api('POST', `/api/workers/${w.name}/ip`))),
-      btn('Test exit (leak)', () => leakTest(w.name)),
-      btn(w.rotate_min ? `Auto-rotate: ${w.rotate_min}m` : 'Auto-rotate…', () => setRotate(w)))),
+      btn('Test exit (leak)', () => leakTest(w.name)))),
     el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Configuration'), el('div', { class: 'arow' },
       btn('Edit tags…', () => editTags(w)),
       btn('Rename…', () => renameConn(w.name)),
