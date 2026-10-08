@@ -108,8 +108,9 @@
   .cname { font-weight: 600; font-size: 13.5px; }
   .csub { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
 
-  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 11px; cursor: pointer; transition: background .12s, border-color .12s, color .12s; white-space: nowrap; }
-  button:hover { background: var(--panel2); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 11px; cursor: pointer; transition: background .12s, border-color .12s, color .12s, box-shadow .12s; white-space: nowrap; box-shadow: 0 1px 1.5px rgba(16,24,40,.04); }
+  button:hover { background: var(--panel2); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); box-shadow: 0 1px 3px rgba(16,24,40,.08); }
+  button.ghost, .kebab, .pwr, .iact, .chip-btn { box-shadow: none; }
   button.primary { background: var(--ink); border-color: var(--ink); color: var(--ink-text); box-shadow: 0 1px 2px rgba(16,24,40,.18); }
   button.primary:hover { background: color-mix(in srgb, var(--ink) 86%, var(--bg)); border-color: color-mix(in srgb, var(--ink) 86%, var(--bg)); }
   button.ghost { border-color: transparent; background: transparent; padding: 5px 8px; color: var(--muted); }
@@ -147,8 +148,7 @@
   .statlbl .sdot { width: 7px; height: 7px; border-radius: 50%; }
   .statlbl.ok { color: var(--text); } .statlbl.ok .sdot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
   .statlbl.muted { color: var(--muted); } .statlbl.muted .sdot { background: var(--muted); }
-  .flag { font-size: 16px; margin-right: 6px; }
-  .flagbox { width: 26px; height: 19px; border-radius: 4px; display: inline-grid; place-items: center; font-size: 14px; line-height: 1; background: var(--panel2); border: 1px solid var(--line2); flex: none; overflow: hidden; }
+  .ccode { min-width: 28px; height: 20px; padding: 0 6px; border-radius: 5px; display: inline-grid; place-items: center; font-size: 10.5px; font-weight: 700; letter-spacing: .05em; line-height: 1; background: var(--panel2); border: 1px solid var(--line); color: var(--muted); flex: none; font-family: ui-monospace, Menlo, monospace; }
   .muted { color: var(--muted); } .ok { color: var(--ok); } .bad { color: var(--bad); }
 
   input[type=text], input[type=password], input[type=number], select, textarea {
@@ -221,12 +221,17 @@
   .drawer-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--line2); }
   .drawer-h .sp { flex: 1; }
   .drawer pre { flex: 1; max-height: none; border-radius: 0; }
-  .detail-body { padding: 16px; overflow: auto; }
-  .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin-bottom: 18px; }
-  .fact .fl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
-  .fact .fv { font-size: 13.5px; margin-top: 2px; }
-  .agroup { margin-top: 16px; }
-  .agroup .at { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+  .detail-body { padding: 18px; overflow: auto; }
+  .dbanner { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 10px; margin-bottom: 16px; font-weight: 600; border: 1px solid; }
+  .dbanner.ok { background: var(--ok-bg); border-color: color-mix(in srgb, var(--ok) 25%, transparent); color: var(--ok); }
+  .dbanner.bad { background: var(--bad-bg); border-color: color-mix(in srgb, var(--bad) 25%, transparent); color: var(--bad); }
+  .dbanner.warn { background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn) 25%, transparent); color: var(--warn); }
+  .dbanner.muted { background: var(--panel2); border-color: var(--line); color: var(--muted); }
+  .facts { background: var(--panel2); border: 1px solid var(--line2); border-radius: 10px; padding: 16px 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; margin-bottom: 20px; box-shadow: inset 0 1px 0 rgba(255,255,255,.4); }
+  .fact .fl { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+  .fact .fv { font-size: 14px; margin-top: 4px; font-weight: 500; }
+  .agroup { margin-top: 18px; }
+  .agroup .at { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; margin-bottom: 9px; }
   .agroup .arow { display: flex; gap: 8px; flex-wrap: wrap; }
   .arow button { flex: 0 0 auto; }
 
@@ -358,7 +363,7 @@
             <div class="toolbar">
               <button id="runSel" class="primary">Run on selected</button>
               <button id="runAll">Run on all connected</button>
-              <span class="kbd">⌘/Ctrl + Enter</span>
+              <span class="kbd">Ctrl / Cmd + Enter</span>
               <div class="divider"></div>
               <label class="muted" style="font-size:12.5px">timeout <input id="timeout" type="number" value="300" min="1" max="3600" style="width:84px"> s</label>
               <span class="sp" style="flex:1"></span>
@@ -395,10 +400,13 @@
       <section id="view-settings" class="view">
         <section class="panel">
           <div class="sec-h"><h2>Control token</h2></div>
-          <div class="sec-b toolbar">
-            <input id="token" type="password" placeholder="paste token from c2/.env" autocomplete="off" style="flex:1;min-width:220px">
-            <button id="saveToken" class="primary">Save</button>
-            <span class="muted" style="font-size:12px">stored in this browser only</span>
+          <div class="sec-b">
+            <p class="muted" style="font-size:12.5px;margin:0 0 10px">Required for every API call. It authorises this browser to control the fleet — keep it secret and never expose the controller publicly without a proxy in front.</p>
+            <div class="toolbar">
+              <input id="token" type="password" placeholder="paste token from c2/.env" autocomplete="off" style="flex:1;min-width:220px">
+              <button id="saveToken" class="primary">Save</button>
+              <span class="muted" style="font-size:12px">stored in this browser only</span>
+            </div>
           </div>
         </section>
         <section class="panel">
@@ -654,9 +662,9 @@ function render() {
     if (ip.error) exitCell = el('td', {}, el('span', { class: 'bad' }, ip.error.slice(0, 40)));
     else if (ip.ip) exitCell = el('td', { title: [ip.city, ip.region, ip.org].filter(Boolean).join(' · ') },
       el('div', { style: 'display:flex;align-items:center;gap:8px' },
-        el('span', { class: 'flagbox' }, flag(ip.country_iso) || '🏳'),
+        el('span', { class: 'ccode' }, (ip.country_iso || '??').toUpperCase()),
         el('span', { style: 'font-weight:500' }, ip.country || ip.city || '—')),
-      el('div', { class: 'csub mono', style: 'margin-left:34px' }, ip.ip));
+      el('div', { class: 'csub mono', style: 'margin-left:36px' }, ip.ip));
     else exitCell = el('td', {}, el('span', { class: 'muted' }, (running && w.health !== 'unhealthy') ? 'checking…' : '—'));
 
     // STATUS — pill + context subline that matches the state (no "up" time on broken rows)
@@ -665,7 +673,7 @@ function render() {
     if (connected) sub = uptime(w.started_at);
     else if (running && w.health === 'unhealthy') sub = 'not responding';
     else if (running) sub = 'establishing tunnel…';
-    const dataTip = st && (st.rx_mb != null) ? `Data: ↓ ${st.rx_mb} MB  ↑ ${st.tx_mb} MB` : '';
+    const dataTip = st && (st.rx_mb != null) ? `Data: ${st.rx_mb} MB in · ${st.tx_mb} MB out` : '';
     const statusCell = el('td', { title: dataTip }, statusPill(w),
       sub ? el('span', { class: 'csub' + (w.health === 'unhealthy' ? ' bad' : ''), style: 'margin-left:8px' }, sub) : '');
 
@@ -699,8 +707,8 @@ async function leakTest(name) {
   toast(`${name}: testing exit…`, 'info', 1500);
   try {
     const r = await api('POST', `/api/workers/${name}/leaktest`);
-    r.pass ? toast(`${name}: ✓ tunnelled — exit ${r.exit_ip} (${r.country || '?'})`, 'ok', 5000)
-           : toast(`${name}: ✗ ${r.reason}`, 'err', 6000);
+    r.pass ? toast(`${name}: tunnelled — exit ${r.exit_ip} (${r.country || '?'})`, 'ok', 5000)
+           : toast(`${name}: leak — ${r.reason}`, 'err', 6000);
   } catch (e) { toast(e.message, 'err'); }
   refresh();
 }
@@ -719,13 +727,22 @@ function renderDetail() {
   const p = profiles[w.name] || {}, ip = w.ipinfo || {}, st = w.stats;
   const running = w.exists && w.vpn === 'running';
   $('#dName').textContent = w.name;
+  // status banner (adds depth + at-a-glance state)
+  let bcls = 'muted', blabel = 'Offline';
+  if (!w.exists) { bcls = 'muted'; blabel = 'Offline'; }
+  else if (w.vpn !== 'running') { bcls = 'muted'; blabel = 'Disconnected'; }
+  else if (w.health === 'healthy') { bcls = 'ok'; blabel = 'Connected'; }
+  else if (w.health === 'unhealthy') { bcls = 'bad'; blabel = 'Error — not responding'; }
+  else { bcls = 'warn'; blabel = 'Connecting…'; }
+  const banner = el('div', { class: 'dbanner ' + bcls },
+    el('span', { style: 'width:8px;height:8px;border-radius:50%;background:currentColor;flex:none' }),
+    blabel, w.gaveup ? el('span', { style: 'font-weight:500;opacity:.85' }, ' · needs attention') : '');
   const fact = (l, v) => el('div', { class: 'fact' }, el('div', { class: 'fl' }, l), el('div', { class: 'fv' }, v));
   const facts = el('div', { class: 'facts' },
-    el('div', { class: 'fact', style: 'grid-column:1/-1' }, el('div', { class: 'fl' }, 'Status'), el('div', { class: 'fv' }, statusPill(w), w.gaveup ? el('span', { class: 'attn', style: 'margin-left:8px' }, 'needs attention') : '')),
     fact('Exit IP', ip.ip ? el('span', { class: 'mono' }, ip.ip) : el('span', { class: ip.error ? 'bad' : 'muted' }, ip.error ? 'no response' : '—')),
-    fact('Location', ip.ip ? el('span', {}, flag(ip.country_iso) ? el('span', { class: 'flag' }, flag(ip.country_iso)) : '', [ip.city, ip.country].filter(Boolean).join(', ') || '—') : el('span', { class: 'muted' }, '—')),
+    fact('Location', ip.ip ? el('span', { style: 'display:inline-flex;align-items:center;gap:8px' }, el('span', { class: 'ccode' }, (ip.country_iso || '??').toUpperCase()), [ip.city, ip.country].filter(Boolean).join(', ') || '—') : el('span', { class: 'muted' }, '—')),
     fact('Uptime', running && w.health === 'healthy' ? uptime(w.started_at) : el('span', { class: 'muted' }, running ? 'not connected' : 'offline')),
-    fact('Data used', st && st.rx_mb != null ? `↓ ${st.rx_mb} MB · ↑ ${st.tx_mb} MB` : '—'),
+    fact('Data used', st && st.rx_mb != null ? `${st.rx_mb} MB in  ·  ${st.tx_mb} MB out` : '—'),
     fact('Server', el('span', { class: 'mono' }, `${p.remote || '?'}${p.proto ? ' · ' + p.proto.toUpperCase() : ''}`)),
     fact('ISP / ASN', ip.org ? el('span', { class: 'muted' }, ip.org) : '—'),
     fact('Restarts', String(w.restarts || 0)),
@@ -747,7 +764,7 @@ function renderDetail() {
       btn('Rename…', () => renameConn(w.name)),
       btn('Delete connection', () => confirm(`Delete connection “${w.name}”?\nThis removes its profile and containers.`) && run(() => api('DELETE', `/api/profiles/${w.name}`))(), 'danger sm'))),
   );
-  $('#dBody').replaceChildren(facts, groups);
+  $('#dBody').replaceChildren(banner, facts, groups);
 }
 $('#dClose').onclick = () => { $('#detailBox').style.display = 'none'; currentDetail = null; };
 function syncSelAll() {
@@ -893,7 +910,7 @@ function openJob(jobId, targets) {
   let done = 0, total = targets.length;
   src.onmessage = ev => {
     const d = JSON.parse(ev.data);
-    if (d.event === 'done') { $('#jobState').innerHTML = `<span class="ok">✓ finished</span>`; src.close(); return; }
+    if (d.event === 'done') { $('#jobState').innerHTML = `<span class="ok">finished</span>`; src.close(); return; }
     if (d.event === 'start') return;
     if (d.event === 'cancel') { toast(`Cancelled — killed ${d.total} process(es)`, 'ok'); return; }
     const pane = jobPanes[d.worker]; if (!pane) return;
@@ -1019,9 +1036,9 @@ function axisChart(values, ts, { w, h = 230, color = 'var(--accent)', unit = '' 
     ${ylab}${xlab}</svg>`;
 }
 function deltaBadge(n) {
-  if (n > 0) return el('span', { class: 'delta up' }, '↑ ' + n);
-  if (n < 0) return el('span', { class: 'delta down' }, '↓ ' + Math.abs(n));
-  return el('span', { class: 'delta flat' }, '0');
+  if (n > 0) return el('span', { class: 'delta up' }, '+' + n);
+  if (n < 0) return el('span', { class: 'delta down' }, '-' + Math.abs(n));
+  return el('span', { class: 'delta flat' }, 'no change');
 }
 function kpiCard(icon, label, value, sub, deltaN, series, color) {
   const ico = el('span', { class: 'kpi-ico', html: icon });
