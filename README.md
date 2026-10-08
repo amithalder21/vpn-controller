@@ -1,140 +1,181 @@
+<div align="center">
+
 # Flotilla
 
 **One control plane for every exit.**
 
-Run **N OpenVPN connections at once** on one Docker host and drive them from a
-single control panel. Each VPN profile gets its own isolated worker; a command
-you issue from the controller runs inside whichever worker(s) you pick, so each
-one leaves through its own tunnel.
+Run many OpenVPN tunnels at once on a single Docker host and operate the whole
+fleet from one dashboard — connect, monitor, run commands across every exit, and
+stream the output live.
 
-## How it works
+</div>
 
-For every `.ovpn` profile the controller manages a **worker** = two containers:
+---
 
-| Container        | Role                                                                    |
-|------------------|-------------------------------------------------------------------------|
-| `mvpn-<p>-vpn`   | [gluetun](https://github.com/qdm12/gluetun) holding that one tunnel      |
-| `mvpn-<p>-app`   | shares the vpn container's network; your commands/scripts run here      |
+## What it does
+
+Each `.ovpn` profile becomes an isolated **exit** — its own tunnel with its own
+egress IP. From one control panel you can:
+
+- **Manage the fleet** — upload profiles, connect/disconnect, reconnect, tag,
+  rename, and delete connections. New profiles get memorable auto-generated
+  names (e.g. `scarlet-beacon`); the real country/IP is shown separately.
+- **See every exit at a glance** — live exit IP, country, ISP/ASN, uptime, data
+  used, and health, refreshed automatically.
+- **Run scripts across the fleet** — type a command or upload a `.sh`, target
+  all or selected exits, and watch per-exit output stream live. Cancel a running
+  job and the processes are killed inside the containers.
+- **Trust the exit** — a leak test confirms traffic really leaves through the
+  tunnel (exit IP ≠ host IP), and gluetun's kill-switch firewall blocks any
+  un-tunnelled traffic even if a VPN drops.
+- **Stay up unattended** — an auto-heal watchdog reconnects dropped/unhealthy
+  tunnels, with activity logging and optional webhook alerts.
+- **Watch trends** — an Overview dashboard with KPI cards and time-series charts
+  (connections online, healthy, data transferred) backed by a metrics history.
+
+Everything in the UI is also a token-authenticated JSON API, so it scripts cleanly.
+
+## Architecture
+
+For every profile the controller runs a **worker** = two containers:
+
+| Container        | Role                                                                |
+|------------------|---------------------------------------------------------------------|
+| `mvpn-<name>-vpn`| [gluetun](https://github.com/qdm12/gluetun) holding that one tunnel  |
+| `mvpn-<name>-app`| shares the vpn container's netns; your commands/scripts run here     |
 
 ```
-          ┌──────────────── controller (web UI + API) ───────────────┐
-          │  mounts /var/run/docker.sock, creates workers on demand   │
-          │  streams script output + logs through DragonflyDB (SSE)   │
-          └──────┬───────────────────┬───────────────────┬───────────┘
-        worker A │           worker B │          worker C │     ┌────────────┐
-      ┌──────────┴─────┐   ┌──────────┴─────┐   ┌─────────┴──┐  │ DragonflyDB │
-      │ vpn (gluetun)  │   │ vpn (gluetun)  │   │ vpn        │  │ (Redis API) │
-      │ app  ◄shares   │   │ app  ◄shares   │   │ app ◄shares│  │  streams    │
-      └──────┬─────────┘   └──────┬─────────┘   └──────┬─────┘  └────────────┘
-          tunnel A             tunnel B             tunnel C
+            ┌──────────────── controller (web UI + JSON API) ───────────────┐
+            │  mounts /var/run/docker.sock · creates workers on demand       │
+            │  auto-heal · 10s exit-IP poll · metrics · SSE streaming        │
+            └──────┬────────────────────┬────────────────────┬──────────────┘
+          exit A   │          exit B     │          exit C     │   ┌──────────────┐
+      ┌────────────┴───┐  ┌──────────────┴─┐  ┌────────────────┴┐ │  DragonflyDB │
+      │ vpn (gluetun)  │  │ vpn (gluetun)  │  │ vpn (gluetun)   │ │  (Redis API) │
+      │ app  ◄shares   │  │ app  ◄shares   │  │ app  ◄shares    │ │  streams/db  │
+      └──────┬─────────┘  └──────┬─────────┘  └──────┬──────────┘ └──────────────┘
+          egress A            egress B            egress C
 ```
 
 Because each app container shares its vpn container's network stack
-(`network_mode: container:<vpn>`), **all** of its traffic exits through that VPN,
-and the tunnels stay independent even if they use overlapping subnets.
+(`network_mode: container:<vpn>`), **all** of its traffic exits through that
+tunnel, and tunnels stay independent even with overlapping subnets.
 
-**DragonflyDB sidecar** is the streaming bus. When you run a script, the
-controller fans it out to every target worker and writes each line of output
-into a per-job Redis **stream** in Dragonfly. The browser tails that stream over
-**SSE**, so output appears live and survives a page reload (replayed from the
-stream, which is kept for 6 h). Live gluetun logs stream the same way.
+**DragonflyDB** is the streaming bus and durable store. Script output is fanned
+into a per-job Redis **stream**; the browser tails it over **SSE**, so output is
+live and replays after a reload. Fleet state (desired status, tags, settings,
+activity, metrics) is persisted there too.
 
 ## Quick start
 
 ```bash
 cd c2
 cp .env.example .env
-sed -i '' "s/change-me/$(openssl rand -hex 24)/" .env   # Linux: drop the ''
+# set a strong token (macOS shown; on Linux drop the '')
+sed -i '' "s/change-me/$(openssl rand -hex 24)/" .env
 docker compose -p mvpn up -d --build
 ```
 
-Open http://127.0.0.1:8088, paste the token from `.env`, then:
+Open **http://127.0.0.1:8088**, open **Settings**, paste the token from `.env`,
+then:
 
-1. **Upload** your `.ovpn` files (or drop them in the `mvpn-profiles` volume).
-2. **Start all** — one worker per profile comes up.
-3. **Check all IPs** — confirms each worker's exit location.
-4. Type a command, **Run on all / selected** — it executes in every chosen worker.
+1. **Connections → drop your `.ovpn` files** (one exit per file).
+2. **Connect all** — a worker per profile comes up; exit IPs auto-populate.
+3. **Run script** — type a command (or upload a `.sh`), **Run on all connected**,
+   and watch each exit's output stream live.
 
-Everything the UI does is also available on the JSON API (see below), so you can
-script it.
+## UI tour
+
+- **Overview** — KPI cards (connections, online, healthy, data transferred) with
+  trend deltas and sparklines, plus throughput and online-over-time charts.
+- **Connections** — the fleet table: name, exit location (country code + IP),
+  status, and per-row quick actions (power, logs, reconnect, details). Click a
+  row for a detail drawer with every fact and action. Search, filter by status,
+  filter by tag, and bulk-act on a selection.
+- **Run script** — script editor + library, target selection, live per-exit job
+  output, cancel/stop.
+- **Activity** — a log of connects, auto-heals, give-ups, renames, leak tests.
+- **Settings** — control token, auto-heal toggle, webhook status, about.
 
 ## API
 
-All `/api/*` calls need `X-Token: <CONTROL_TOKEN>`.
+All `/api/*` calls require `X-Token: <CONTROL_TOKEN>` (SSE endpoints take it as
+`?token=…` since EventSource can't set headers).
 
-| Method & path                       | Does                                        |
-|-------------------------------------|---------------------------------------------|
-| `GET  /api/profiles`                | list uploaded profiles                      |
-| `POST /api/profiles` (multipart)    | upload one or more `.ovpn` files            |
-| `DELETE /api/profiles/<name>`       | remove worker + delete the profile          |
-| `GET  /api/workers`                 | status + cached exit IP of every worker     |
-| `POST /api/workers/<name>/<action>` | `start` / `stop` / `restart` / `ip`         |
-| `DELETE /api/workers/<name>`        | remove the worker (keep the profile)        |
-| `GET  /api/workers/<name>/logs`     | gluetun logs (`?tail=200`)                  |
-| `POST /api/bulk/<action>`           | same actions across many; body `{"targets":[...]}` or omit for all |
-| `POST /api/exec`                    | `{"command":"...","targets":"all","timeout":60}` one-shot, returns output |
-| `GET  /api/scripts`                 | list uploaded `.sh` scripts                 |
-| `POST /api/scripts` (multipart)     | upload one or more `.sh` scripts            |
-| `GET/DELETE /api/scripts/<name>`    | read / delete a script                      |
-| `POST /api/run`                     | stream a job: `{"script":"x.sh"}` or `{"body":"<shell>"}` + `targets`, `timeout`; returns a job id |
-| `GET  /api/jobs/<id>/stream`        | **SSE** live output of a job (replays + follows) |
-| `POST /api/jobs/<id>/cancel`        | kill that job's processes in the workers (TERM, then KILL) |
-| `GET/POST /api/settings`            | read / toggle auto-heal (`{"autoheal":true}`) |
-| `GET  /api/events`                  | recent activity (connects, auto-heals, renames…) |
-| `POST /api/profiles/<name>/tags`    | set tags (`{"tags":["eu","scraping"]}`) |
-| `POST /api/profiles/<name>/rename`  | rename a connection (`{"to":"new-name"}`) |
-| `GET  /api/workers/<name>/logs/stream` | **SSE** live gluetun logs                 |
-
-SSE endpoints can't send headers, so they take the token as `?token=<CONTROL_TOKEN>`.
-
-```bash
-# upload a script, run it on every worker, and watch output live
-curl -s -H "X-Token: $TOK" -F files=@probe.sh http://127.0.0.1:8088/api/scripts
-ID=$(curl -s -X POST -H "X-Token: $TOK" -H 'Content-Type: application/json' \
-  -d '{"script":"probe.sh","targets":"all"}' http://127.0.0.1:8088/api/run | jq -r .job)
-curl -N "http://127.0.0.1:8088/api/jobs/$ID/stream?token=$TOK"
-```
+| Method & path                           | Does                                                            |
+|-----------------------------------------|-----------------------------------------------------------------|
+| `GET  /api/profiles`                    | list profiles (name, remote, proto)                             |
+| `POST /api/profiles` (multipart)        | upload `.ovpn` file(s); each gets a funky name                  |
+| `POST /api/profiles/<name>/tags`        | set tags `{"tags":[…]}`                                         |
+| `POST /api/profiles/<name>/rename`      | rename `{"to":"…"}`                                             |
+| `DELETE /api/profiles/<name>`           | delete the connection (profile + containers)                    |
+| `GET  /api/workers`                     | full status of every exit (ip, country, health, stats, tags…)   |
+| `POST /api/workers/<name>/<action>`     | `start` / `stop` / `restart` / `ip` / `leaktest`                |
+| `GET  /api/workers/<name>/logs/stream`  | **SSE** live gluetun logs                                       |
+| `POST /api/bulk/<action>`               | action across many; body `{"targets":[…]}` or omit for all      |
+| `POST /api/exec`                        | one-shot command, returns output                                |
+| `GET/POST/DELETE /api/scripts[/<name>]` | list / upload / read / delete `.sh` scripts                     |
+| `POST /api/run`                         | stream a job: `{"script":"x.sh"\|"body":"…", "targets", "timeout"}` → job id |
+| `GET  /api/jobs/<id>/stream`            | **SSE** live job output (replays + follows)                     |
+| `POST /api/jobs/<id>/cancel`            | kill the job's processes (TERM, then KILL)                      |
+| `GET  /api/metrics`                     | recent fleet metric points (for the charts)                     |
+| `GET  /api/events`                      | recent activity                                                 |
+| `GET/POST /api/settings`                | read / toggle auto-heal                                         |
 
 ```bash
 TOK=$(grep -o '[0-9a-f]\{48\}' c2/.env)
+
+# run a command on every connected exit and see which country each is in
 curl -s -X POST -H "X-Token: $TOK" -H 'Content-Type: application/json' \
-  -d '{"command":"curl -s https://ifconfig.co/json","targets":"all"}' \
+  -d '{"command":"curl -s https://ifconfig.co/country-iso","targets":"all"}' \
   http://127.0.0.1:8088/api/exec | jq
 ```
 
 ## Auto-heal
 
-A background watchdog reconnects connections that are meant to be up but have
-dropped or gone unhealthy. Each connection tracks a desired state (set when you
-Connect/Disconnect), so a manual Disconnect is never fought by the watchdog.
-Restarts are capped (`HEAL_MAX_RESTARTS` within `HEAL_WINDOW`); after that a
-connection is marked **needs attention** until you reconnect it. Toggle it from
-the header; set `WEBHOOK_URL` to receive a JSON POST on auto-heal / give-up.
+A watchdog reconnects exits that are meant to be up but dropped or went
+unhealthy. Each connection has a **desired state** (set by Connect/Disconnect),
+so a manual Disconnect is never overridden. Restarts are capped
+(`HEAL_MAX_RESTARTS` within `HEAL_WINDOW`); past that the connection is flagged
+**needs attention** until you reconnect it. Set `WEBHOOK_URL` for a JSON POST on
+auto-heal / give-up.
 
-Tunables (env on the controller): `HEAL_INTERVAL` (20s), `HEAL_GRACE` (120s
-unhealthy tolerance), `HEAL_MAX_RESTARTS` (3), `HEAL_WINDOW` (900s).
+**Controller env tunables:** `HEAL_INTERVAL` (20s) · `HEAL_GRACE` (120s) ·
+`HEAL_MAX_RESTARTS` (3) · `HEAL_WINDOW` (900s) · `WEBHOOK_URL` (unset).
 
 ## Security
 
-The controller **mounts the Docker socket**, which is equivalent to root on the
-host. Therefore:
+The controller **mounts the Docker socket** (root-equivalent) and runs the
+scripts you submit, so treat it as privileged:
 
-- It binds to `127.0.0.1` only, and every API call requires `CONTROL_TOKEN`.
-- **Do not** expose port 8088 to the internet or through a tunnel. For remote
-  access use an SSH tunnel (`ssh -L 8088:127.0.0.1:8088 user@host`) or put it
-  behind an authenticating proxy / Cloudflare Access.
-- Profiles hold private keys and are kept in the `mvpn-profiles` Docker volume,
-  never in git.
+- It binds to `127.0.0.1` only and every API call requires `CONTROL_TOKEN`.
+- **Never** expose port 8088 to the internet directly. For remote access use an
+  SSH tunnel (`ssh -L 8088:127.0.0.1:8088 user@host`) or an authenticating proxy
+  (e.g. Cloudflare Access).
+- Profiles contain private keys and live only in the `mvpn-profiles` volume —
+  never in git (`.gitignore` enforces this).
 
-## `test-lab/` — optional self-contained demo
+## Deploying on a server (Dokploy)
 
-`test-lab/` runs its own throwaway OpenVPN servers so you can see the isolation
-without any real provider. `gen-pki.sh` mints a separate CA per tunnel; the
-generated keys are git-ignored. Not needed to use the controller.
+Use a **Docker Compose** service (not a Swarm "Application" — Swarm blocks the
+`NET_ADMIN` / `/dev/net/tun` the tunnels need). Paste `c2/compose.yaml`, set
+`CONTROL_TOKEN` in the Environment tab, deploy, and reach the panel over SSH.
+Do not attach a public domain to it.
 
-## Deploying on Dokploy
+## `test-lab/` — self-contained demo
 
-Create a **Docker Compose** service (not an Application — Swarm blocks the
-`NET_ADMIN`/`/dev/net/tun` the tunnels need), paste `c2/compose.yaml`, set
-`CONTROL_TOKEN` in the Environment tab, and deploy. Reach the panel over SSH;
-don't attach a public domain to it.
+`test-lab/` spins up throwaway OpenVPN servers so you can see the isolation
+without a real provider. `gen-pki.sh` mints a separate CA per tunnel; generated
+keys are git-ignored. Not needed to use Flotilla.
+
+## Roadmap
+
+- **Rotating proxy pool** — expose each exit as an HTTP/SOCKS proxy plus one
+  round-robin endpoint, for real per-request IP rotation across the fleet.
+- WireGuard support · bulk `.zip` import (auto-named by country) · scheduled
+  jobs with history · RBAC + audit · Prometheus metrics.
+
+## Stack
+
+Flask · docker-py · DragonflyDB (Redis-compatible) · gluetun · Debian worker
+image · a dependency-free vanilla-JS single-page UI.
