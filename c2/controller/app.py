@@ -234,7 +234,8 @@ def _fire_schedule(s, manual=False):
     names = resolve_targets(s.get("targets"))
     if not names:
         raise ValueError("no running workers to target")
-    job_id = run_job(base64.b64encode(raw).decode(), names, int(s.get("timeout", 300)))
+    label = s.get("name") or s.get("script") or "schedule"
+    job_id = run_job(base64.b64encode(raw).decode(), names, int(s.get("timeout", 300)), label=label)
     s["last_run"] = int(time.time())
     s["last_job"] = job_id
     s["last_status"] = f"ran on {len(names)}"
@@ -592,11 +593,44 @@ def cancel_job(job_id, names):
     return result
 
 
-def run_job(script_b64, names, timeout):
+def _job_meta_set(meta):
+    _rtry(lambda: rdb.hset("mvpn:jobs", meta["id"], json.dumps(meta)))
+
+def _job_meta_update(job_id, **fields):
+    raw = _rtry(lambda: rdb.hget("mvpn:jobs", job_id))
+    if not raw:
+        return
+    try:
+        d = json.loads(raw)
+    except ValueError:
+        return
+    d.update(fields)
+    _rtry(lambda: rdb.hset("mvpn:jobs", job_id, json.dumps(d)))
+
+def _job_meta_trim(keep=150):
+    raw = _rtry(lambda: rdb.hgetall("mvpn:jobs")) or {}
+    if len(raw) <= keep:
+        return
+    rows = []
+    for jid, js in raw.items():
+        try:
+            rows.append((json.loads(js).get("ts", 0), jid))
+        except ValueError:
+            rows.append((0, jid))
+    rows.sort()
+    for _ts, jid in rows[:len(rows) - keep]:
+        _rtry(lambda j=jid: rdb.hdel("mvpn:jobs", j))
+
+
+def run_job(script_b64, names, timeout, label=None):
     """Start one streaming exec per target, then mark the job done."""
     job_id = uuid.uuid4().hex[:12]
     publish(job_id, event="start", workers=json.dumps(names),
             count=len(names))
+    _job_meta_set({"id": job_id, "ts": int(time.time()), "label": label or "command",
+                   "count": len(names), "targets": names,
+                   "status": "running", "finished_at": None})
+    _job_meta_trim()
 
     def coordinator():
         futures = [pool.submit(stream_exec, n, script_b64, timeout, job_id)
@@ -604,6 +638,7 @@ def run_job(script_b64, names, timeout):
         for f in futures:
             f.result()
         publish(job_id, event="done")
+        _job_meta_update(job_id, status="done", finished_at=int(time.time()))
 
     threading.Thread(target=coordinator, daemon=True).start()
     return job_id
@@ -858,9 +893,28 @@ def api_run():
     if not names:
         abort(400, "no running workers to target")
     timeout = max(1, min(int(body.get("timeout", 300)), 3600))
+    if body.get("script"):
+        label = body["script"]
+    else:
+        first = (body.get("body", "").strip().splitlines() or [""])[0]
+        label = first[:60] or "command"
     script_b64 = base64.b64encode(raw).decode()
-    job_id = run_job(script_b64, names, timeout)
+    job_id = run_job(script_b64, names, timeout, label=label)
     return jsonify(job=job_id, targets=names)
+
+
+@app.get("/api/jobs")
+def api_jobs_list():
+    limit = min(int(request.args.get("limit", 50)), 200)
+    raw = _rtry(lambda: rdb.hgetall("mvpn:jobs")) or {}
+    out = []
+    for js in raw.values():
+        try:
+            out.append(json.loads(js))
+        except ValueError:
+            pass
+    out.sort(key=lambda m: m.get("ts", 0), reverse=True)
+    return jsonify(out[:limit])
 
 
 @app.get("/api/jobs/<job_id>/stream")

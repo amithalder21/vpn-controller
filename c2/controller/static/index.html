@@ -125,7 +125,7 @@
 
   /* world map */
   .mapwrap { position: relative; width: 100%; }
-  .mapwrap svg.map { width: 100%; height: auto; display: block; }
+  .mapwrap svg.map { width: 100%; height: auto; max-height: 284px; display: block; margin: 0 auto; }
   .map-land { fill: var(--panel2); stroke: var(--line); stroke-width: .5; }
   .map-dot { cursor: pointer; transition: opacity .12s; }
   .map-dot:hover { opacity: .82; }
@@ -459,6 +459,15 @@
           </div>
           <div class="sec-b"><div id="jobResults" class="results"></div></div>
         </section>
+        <section class="panel">
+          <div class="sec-h"><h2>Recent jobs</h2><span class="sp"></span><span class="count-chip">last 6h</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>When</th><th>Script / command</th><th>Targets</th><th>Status</th><th style="text-align:right">Output</th></tr></thead>
+              <tbody id="jobHistory"><tr><td colspan="5" class="empty">No jobs yet.</td></tr></tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
       <!-- SCHEDULES -->
@@ -542,6 +551,7 @@
             <div><b>Flotilla</b> — one control plane for every exit.</div>
             <div>Manage a fleet of VPN tunnels from one place; each connection is an isolated exit — run scripts across the fleet and stream output live.</div>
             <div style="margin-top:6px"><a href="https://github.com/amithalder21/vpn-controller" target="_blank" rel="noopener">github.com/amithalder21/vpn-controller</a></div>
+            <div style="margin-top:4px">Feedback or a bug? <a href="https://github.com/amithalder21/vpn-controller/issues/new" target="_blank" rel="noopener">Open an issue</a>.</div>
           </div>
         </section>
       </section>
@@ -665,6 +675,7 @@ function go(v) {
   $('#viewTitle').textContent = TITLES[v];
   if (v === 'overview') { renderOverviewLive(); loadMetrics(); }
   if (v === 'schedules') loadSchedules();
+  if (v === 'run') loadJobHistory();
   closeMenu(); window.scrollTo(0, 0);
 }
 document.querySelectorAll('.nav-item').forEach(n => n.addEventListener('click', () => go(n.dataset.view)));
@@ -1030,12 +1041,13 @@ function openJob(jobId, targets) {
     grid.append(el('div', { class: 'card' }, el('div', { class: 'hd' }, el('b', { class: 'mono' }, name), el('span', { class: 'sp' }), state, copy), pre));
     jobPanes[name] = { pre, state };
   }
+  loadJobHistory();
   const src = new EventSource(`/api/jobs/${jobId}/stream?token=${encodeURIComponent(token)}`);
   jobSrc = src;
   let done = 0, total = targets.length;
   src.onmessage = ev => {
     const d = JSON.parse(ev.data);
-    if (d.event === 'done') { $('#jobState').innerHTML = `<span class="ok">finished</span>`; src.close(); return; }
+    if (d.event === 'done') { $('#jobState').innerHTML = `<span class="ok">finished</span>`; src.close(); loadJobHistory(); return; }
     if (d.event === 'start') return;
     if (d.event === 'cancel') { toast(`Cancelled — killed ${d.total} process(es)`, 'ok'); return; }
     const pane = jobPanes[d.worker]; if (!pane) return;
@@ -1235,7 +1247,7 @@ function renderExitMap() {
   // Build the base map (land + static chrome) once; only the dots layer updates on refresh.
   if (!box.querySelector('svg.map')) {
     box.innerHTML =
-      `<svg class="map" viewBox="0 0 ${MAPDATA.w} ${MAPDATA.h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map of exit locations"><path class="map-land" d="${MAPDATA.land}"/><g id="mapDots"></g></svg>`
+      `<svg class="map" viewBox="0 42 ${MAPDATA.w} 356" preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map of exit locations"><path class="map-land" d="${MAPDATA.land}"/><g id="mapDots"></g></svg>`
       + '<div class="empty" id="mapEmpty" style="position:absolute;inset:0 0 44px;display:grid;place-items:center;pointer-events:none"></div>'
       + `<div class="map-foot"><span class="map-leg"><span class="lg-d" style="background:var(--c-green)"></span>Connected</span><span class="map-leg"><span class="lg-d" style="background:var(--c-amber)"></span>Connecting</span><span class="map-leg"><span class="lg-d" style="background:var(--bad)"></span>Needs attention</span></div>`
       + '<div class="map-tip" id="mapTip"></div>';
@@ -1417,13 +1429,34 @@ async function createSchedule() {
   const payload = { name, cron, targets: tv === 'all' ? 'all' : [tv], timeout: +$('#schTimeout').value || 300 };
   if (source) payload.script = source;
   else { const b = $('#schBody').value.trim(); if (!b) return toast('Enter an inline command or pick a script', 'info'); payload.body = b; }
+  const btn = $('#schCreate'); btn.disabled = true; const prev = btn.textContent; btn.textContent = 'Creating…';
   try { const r = await api('POST', '/api/schedules', payload); toast(`Schedule “${r.name}” created`, 'ok'); $('#schName').value = ''; loadSchedules(); }
   catch (e) { toast(e.message, 'err'); }
+  finally { btn.disabled = false; btn.textContent = prev; }
 }
 $('#schCreate').onclick = createSchedule;
 $('#schPreset').addEventListener('change', e => { if (e.target.value !== 'custom') $('#schCron').value = e.target.value; });
 $('#schCron').addEventListener('input', () => { $('#schPreset').value = 'custom'; });
 $('#schSource').addEventListener('change', toggleSchBody);
+
+/* ---------- job history ---------- */
+function jobStatusCell(m) {
+  if (m.status === 'running') return el('span', { class: 'pill warn' }, el('span', { class: 'd' }), 'running');
+  return el('span', { class: 'statlbl ok' }, el('span', { class: 'sdot' }), 'done');
+}
+async function loadJobHistory() {
+  const tb = $('#jobHistory'); if (!tb) return;
+  try {
+    const list = await api('GET', '/api/jobs?limit=50');
+    if (!list.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'No jobs yet.'))); return; }
+    tb.replaceChildren(...list.map(m => el('tr', {},
+      el('td', { title: new Date(m.ts * 1000).toLocaleString() }, relTime(m.ts)),
+      el('td', {}, el('span', { class: 'mono', style: 'font-size:12.5px' }, m.label || 'command')),
+      el('td', { title: (m.targets || []).join(', ') }, `${m.count} exit${m.count === 1 ? '' : 's'}`),
+      el('td', {}, jobStatusCell(m)),
+      el('td', { style: 'text-align:right' }, el('button', { class: 'sm', onclick: () => openJob(m.id, m.targets || []) }, 'View')))));
+  } catch (e) {}
+}
 
 /* token */
 $('#saveToken').onclick = () => {
