@@ -960,20 +960,63 @@ async function leakTest(name) {
 }
 /* ---------- connection detail drawer ---------- */
 let currentDetail = null;
-let _detailActionSig = '';
+let _dToggle = null;
 function openDetail(name) {
   currentDetail = name;
   if (logSrc) { logSrc.close(); } $('#logsBox').style.display = 'none';
   $('#detailBox').style.display = 'flex';
-  _detailActionSig = '';
   $('#dBody').replaceChildren(el('div', { id: 'dLive' }), el('div', { id: 'dActions' }));
+  buildDetailActions(name);
   renderDetail();
+}
+// Actions are built ONCE per open and never recreated by refreshes, so an
+// errored/cycling connection can't reset a button mid-click. Handlers read the
+// current state from lastWorkers at click time; renderDetail only updates the
+// Connect/Disconnect label in place.
+function buildDetailActions(name) {
+  const act = (fn, note) => async (ev) => {
+    const b = ev && ev.currentTarget; if (b) b.disabled = true;
+    if (note) toast(name + ': ' + note, 'info', 1400);
+    try { await fn(); } catch (e) { toast(name + ': ' + e.message, 'err'); }
+    if (b) b.disabled = false;
+    refresh();
+  };
+  const btn = (label, fn, cls = 'sm') => el('button', { class: cls, onclick: fn }, label);
+  _dToggle = el('button', { class: 'sm', onclick: (ev) => {
+    const w = lastWorkers.find(x => x.name === name), running = w && w.exists && w.vpn === 'running';
+    act(() => api('POST', `/api/workers/${name}/${running ? 'stop' : 'start'}`), running ? 'disconnecting…' : 'connecting…')(ev);
+  } }, 'Connect');
+  const delBtn = el('button', { class: 'danger sm' }, 'Delete connection');
+  let armed = false, armT;
+  delBtn.addEventListener('click', () => {
+    if (!armed) { armed = true; delBtn.textContent = 'Click again to confirm'; delBtn.classList.add('primary'); armT = setTimeout(() => { armed = false; delBtn.textContent = 'Delete connection'; delBtn.classList.remove('primary'); }, 4000); return; }
+    clearTimeout(armT); delBtn.disabled = true; delBtn.textContent = 'Deleting…';
+    (async () => {
+      try { await api('DELETE', `/api/profiles/${name}`); toast(`${name} deleted`, 'ok'); $('#detailBox').style.display = 'none'; currentDetail = null; }
+      catch (e) { delBtn.disabled = false; delBtn.textContent = 'Delete connection'; delBtn.classList.remove('primary'); toast(name + ': ' + e.message, 'err'); }
+      refresh();
+    })();
+  });
+  const groups = el('div', {},
+    el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Connection'), el('div', { class: 'arow' },
+      _dToggle,
+      btn('Reconnect', act(() => api('POST', `/api/workers/${name}/restart`), 'reconnecting…')),
+      btn('Live logs', () => streamLogs(name)))),
+    el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Exit'), el('div', { class: 'arow' },
+      btn('Check exit IP', act(() => api('POST', `/api/workers/${name}/ip`), 'checking exit IP…')),
+      btn('Test exit (leak)', () => leakTest(name)))),
+    el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Configuration'), el('div', { class: 'arow' },
+      btn('Edit tags…', () => editTags(lastWorkers.find(x => x.name === name) || { name })),
+      btn('Rename…', () => renameConn(name)),
+      delBtn)),
+  );
+  $('#dActions').replaceChildren(groups);
 }
 function renderDetail() {
   if ($('#detailBox').style.display === 'none') return;
   const w = lastWorkers.find(x => x.name === currentDetail);
   if (!w) { $('#detailBox').style.display = 'none'; return; }
-  if (!$('#dLive')) $('#dBody').replaceChildren(el('div', { id: 'dLive' }), el('div', { id: 'dActions' }));
+  if (!$('#dLive')) { $('#dBody').replaceChildren(el('div', { id: 'dLive' }), el('div', { id: 'dActions' })); buildDetailActions(currentDetail); }
   const p = profiles[w.name] || {}, ip = w.ipinfo || {}, st = w.stats;
   const running = w.exists && w.vpn === 'running';
   $('#dName').textContent = w.name;
@@ -1009,36 +1052,9 @@ function renderDetail() {
     fact('Restarts', String(w.restarts || 0)),
     fact('Tags', (w.tags && w.tags.length) ? el('span', { class: 'tags' }, ...w.tags.map(t => el('span', { class: 'tag-chip' }, '#' + t))) : el('span', { class: 'muted' }, 'none')),
   );
-  // live section (banner + facts) refreshes every tick
+  // live section (banner + facts) refreshes every tick; actions stay put
   $('#dLive').replaceChildren(banner, facts);
-
-  // action buttons are rebuilt ONLY when the connection's state changes,
-  // so a periodic refresh never recreates a button mid-click
-  const sig = [w.name, running, w.health || '', w.exists].join('|');
-  if (sig === _detailActionSig) return;
-  _detailActionSig = sig;
-  const run = (fn, note) => async (ev) => {
-    if (ev && ev.currentTarget) ev.currentTarget.disabled = true;
-    if (note) toast(w.name + ': ' + note, 'info', 1400);
-    try { await fn(); } catch (e) { toast(w.name + ': ' + e.message, 'err'); }
-    refresh();
-  };
-  const btn = (label, fn, cls = 'sm') => el('button', { class: cls, onclick: fn }, label);
-  const groups = el('div', {},
-    el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Connection'), el('div', { class: 'arow' },
-      running ? btn('Disconnect', run(() => api('POST', `/api/workers/${w.name}/stop`), 'disconnecting…'))
-              : btn('Connect', run(() => api('POST', `/api/workers/${w.name}/start`), 'connecting…'), 'primary sm'),
-      btn('Reconnect', run(() => api('POST', `/api/workers/${w.name}/restart`), 'reconnecting…')),
-      btn('Live logs', () => streamLogs(w.name)))),
-    el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Exit'), el('div', { class: 'arow' },
-      btn('Check exit IP', run(() => api('POST', `/api/workers/${w.name}/ip`), 'checking exit IP…')),
-      btn('Test exit (leak)', () => leakTest(w.name)))),
-    el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Configuration'), el('div', { class: 'arow' },
-      btn('Edit tags…', () => editTags(w)),
-      btn('Rename…', () => renameConn(w.name)),
-      btn('Delete connection', () => confirm(`Delete connection “${w.name}”?\nThis removes its profile and containers.`) && run(() => api('DELETE', `/api/profiles/${w.name}`))(), 'danger sm'))),
-  );
-  $('#dActions').replaceChildren(groups);
+  if (_dToggle) { _dToggle.textContent = running ? 'Disconnect' : 'Connect'; _dToggle.className = running ? 'sm' : 'primary sm'; }
 }
 $('#dClose').onclick = () => { $('#detailBox').style.display = 'none'; currentDetail = null; };
 function syncSelAll() {
