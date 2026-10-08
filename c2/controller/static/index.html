@@ -74,8 +74,10 @@
   .delta.up { color: var(--ok); background: var(--ok-bg); } .delta.down { color: var(--bad); background: var(--bad-bg); } .delta.flat { color: var(--muted); background: var(--panel2); }
   .spark-wrap { margin-top: 10px; height: 36px; }
   .spark-wrap svg { width: 100%; height: 100%; display: block; }
-  .chartwrap { width: 100%; height: 220px; }
-  .chartwrap svg { width: 100%; height: 100%; display: block; }
+  .chartwrap { width: 100%; height: 230px; }
+  .chartwrap svg { width: 100%; display: block; }
+  .grid { stroke: var(--line2); stroke-width: 1; }
+  .axlbl { fill: var(--muted); font-size: 10.5px; font-family: inherit; }
 
   /* stats */
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
@@ -905,6 +907,48 @@ function chartSVG(vals, { w = 800, h = 200, color = 'var(--accent)', dot = false
     ${dot ? `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="3" style="fill:${color}" vector-effect="non-scaling-stroke"/>` : ''}
   </svg>`;
 }
+function niceNum(x) {
+  if (!(x > 0)) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(x))), f = x / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+}
+function fmtY(v, unit) {
+  if (unit === 'MB') return v >= 1024 ? (v / 1024).toFixed(1) + 'GB' : Math.round(v) + 'MB';
+  return String(Math.round(v));
+}
+// full chart with X (time) and Y (value) axes + gridlines
+function axisChart(values, ts, { w, h = 230, color = 'var(--accent)', unit = '' }) {
+  values = (values || []).map(Number).filter(v => isFinite(v));
+  if (values.length < 2) return '<div class="empty">Collecting data…</div>';
+  const PADL = 46, PADR = 14, PADT = 10, PADB = 24;
+  const maxV = Math.max(...values, 0), step = niceNum((maxV || 1) / 4);
+  const top = Math.max(step, Math.ceil(maxV / step) * step);
+  const plotW = w - PADL - PADR, plotH = h - PADT - PADB, gid = 'ac' + (++_gid);
+  const X = i => PADL + (i / (values.length - 1)) * plotW;
+  const Y = v => PADT + (1 - v / top) * plotH;
+  const pts = values.map((v, i) => [X(i), Y(v)]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const area = `${line} L ${X(values.length - 1).toFixed(1)} ${(PADT + plotH).toFixed(1)} L ${PADL} ${(PADT + plotH).toFixed(1)} Z`;
+  let grid = '', ylab = '', xlab = '';
+  for (let k = 0; k <= 4; k++) {
+    const v = top * k / 4, y = Y(v);
+    grid += `<line x1="${PADL}" y1="${y.toFixed(1)}" x2="${w - PADR}" y2="${y.toFixed(1)}" class="grid"/>`;
+    ylab += `<text x="${PADL - 8}" y="${(y + 3).toFixed(1)}" class="axlbl" text-anchor="end">${fmtY(v, unit)}</text>`;
+  }
+  const nx = Math.min(4, values.length - 1);
+  for (let k = 0; k <= nx; k++) {
+    const i = Math.round(k / nx * (values.length - 1)), x = X(i);
+    const t = ts && ts[i] ? new Date(ts[i] * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    xlab += `<text x="${x.toFixed(1)}" y="${h - 7}" class="axlbl" text-anchor="${k === 0 ? 'start' : k === nx ? 'end' : 'middle'}">${t}</text>`;
+  }
+  const last = pts[pts.length - 1];
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="xMidYMid meet">
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:${color};stop-opacity:.18"/><stop offset="1" style="stop-color:${color};stop-opacity:0"/></linearGradient></defs>
+    ${grid}<path d="${area}" style="fill:url(#${gid})"/>
+    <path d="${line}" style="fill:none;stroke:${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="3.2" style="fill:${color}"/>
+    ${ylab}${xlab}</svg>`;
+}
 function deltaBadge(n) {
   if (n > 0) return el('span', { class: 'delta up' }, '↑ ' + n);
   if (n < 0) return el('span', { class: 'delta down' }, '↓ ' + Math.abs(n));
@@ -930,10 +974,14 @@ async function loadMetrics() {
     kpiCard(KICON.healthy, 'Healthy', String(last.healthy), '', last.healthy - first.healthy, m.map(p => p.healthy), 'var(--ok)'),
     kpiCard(KICON.data, 'Data transferred', fmtData(tot[tot.length - 1]), '', Math.round(tot[tot.length - 1] - tot[0]), tot, '#7c5cff'),
   );
-  $('#thrChart').innerHTML = chartSVG(tot, { w: 900, h: 200, color: 'var(--accent)', dot: true });
+  const tsArr = m.map(p => p.ts);
+  const W = Math.max(320, $('#thrChart').clientWidth || 800);
+  $('#thrChart').innerHTML = axisChart(tot, tsArr, { w: W, h: 230, color: 'var(--accent)', unit: 'MB' });
   $('#thrTotal').textContent = fmtData(last.rx + last.tx) + ' total';
-  $('#onlineChart').innerHTML = chartSVG(m.map(p => p.online), { w: 900, h: 140, color: '#0ea5a4', dot: true });
+  const W2 = Math.max(320, $('#onlineChart').clientWidth || 800);
+  $('#onlineChart').innerHTML = axisChart(m.map(p => p.online), tsArr, { w: W2, h: 140, color: '#0ea5a4', unit: '' });
 }
+let _rsz; window.addEventListener('resize', () => { clearTimeout(_rsz); _rsz = setTimeout(() => { if ($('#view-overview').classList.contains('active')) loadMetrics(); }, 200); });
 
 /* token */
 $('#saveToken').onclick = () => {
