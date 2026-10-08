@@ -36,6 +36,16 @@
     background-attachment: fixed; }
   a { color: var(--accent); }
 
+  /* cognitive polish: clear keyboard focus, calm motion, aligned numerals */
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+  :focus:not(:focus-visible) { outline: none; }
+  .kpi-val, .stat .n, .lg-row .lg-v, .lg-row .lg-p, .hbar-v, .delta, .count-chip,
+  td.mono, .csub, .ev .t, .ccode, th, .fact .fv { font-variant-numeric: tabular-nums; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+      transition-duration: .001ms !important; scroll-behavior: auto !important; }
+  }
+
   .app { display: flex; min-height: 100vh; }
 
   /* sidebar */
@@ -47,7 +57,10 @@
   .nav-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: none; background: none; color: var(--muted); font: inherit; font-weight: 550; padding: 9px 11px; border-radius: 9px; cursor: pointer; }
   .nav-item svg { width: 17px; height: 17px; flex: none; }
   .nav-item:hover { background: var(--panel2); color: var(--text); }
+  .nav-item { position: relative; }
   .nav-item.active { background: var(--accent-weak); color: var(--accent); }
+  .nav-item.active::before { content: ""; position: absolute; left: 3px; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 15px; border-radius: 0 3px 3px 0; background: var(--accent); }
   .nav-badge { margin-left: auto; font-size: 11px; font-weight: 700; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px; background: var(--bad); color: #fff; display: none; place-items: center; }
   .nav-badge.show { display: grid; }
   .side-foot { border-top: 1px solid var(--line2); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -92,6 +105,16 @@
   .ov-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
   @media (max-width: 860px) { .ov-row { grid-template-columns: 1fr; } }
   .ov-row .panel { margin-bottom: 0; }
+
+  /* first-run guidance */
+  .firstrun { display: flex; align-items: center; gap: 16px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 16px 20px; margin-bottom: 16px; }
+  .firstrun .fr-ico { width: 38px; height: 38px; border-radius: 11px; background: var(--accent-weak); color: var(--accent);
+    display: grid; place-items: center; flex: none; }
+  .firstrun .fr-ico svg { width: 20px; height: 20px; }
+  .firstrun .fr-t { font-weight: 650; font-size: 14.5px; letter-spacing: -.01em; }
+  .firstrun .fr-s { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  .firstrun button { margin-left: auto; flex: none; }
 
   /* donut + legend */
   .donut { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
@@ -331,6 +354,14 @@
 
       <!-- OVERVIEW -->
       <section id="view-overview" class="view active">
+        <div id="firstRun" class="firstrun" style="display:none">
+          <span class="fr-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg></span>
+          <div>
+            <div class="fr-t">Welcome to Flotilla</div>
+            <div class="fr-s">No exits yet — add one or more <b>.ovpn</b> profiles to see them live on the map and dashboard.</div>
+          </div>
+          <button class="primary" id="firstRunGo">Add connections</button>
+        </div>
         <div class="kpis" id="kpis"></div>
         <section class="panel">
           <div class="sec-h"><h2>Exit map</h2><span class="muted" style="font-size:11.5px">where your tunnels egress</span><span class="sp"></span><span class="count-chip" id="mapSummary"></span></div>
@@ -693,6 +724,7 @@ document.querySelectorAll('.nav-item').forEach(n => n.addEventListener('click', 
 /* ---------- workers ---------- */
 let profiles = {}, selected = new Set(), lastWorkers = [];
 let filterText = '', filterStatus = 'all', filterTag = '';
+let _renderSig = '';
 
 /* live throughput: derive MB/s from successive cumulative stats samples */
 let rateNow = {}, fleetRateHist = [], _ratePrev = {};
@@ -784,7 +816,7 @@ function renderStats(plist, workers) {
   const badge = $('#navIssues');
   badge.textContent = issues; badge.classList.toggle('show', issues > 0);
   const cs = $('#connSummary');
-  if (cs) cs.innerHTML = `<b style="color:var(--text)">${plist.length}</b> exit${plist.length === 1 ? '' : 's'} · ${healthy.length} connected${issues ? ` · <span style="color:var(--bad)">${issues} need attention</span>` : ''}`;
+  if (cs) cs.innerHTML = `<b style="color:var(--text)">${plist.length}</b> exit${plist.length === 1 ? '' : 's'} · ${healthy.length} connected${issues ? ` · <span style="color:var(--bad)">${issues} need${issues === 1 ? 's' : ''} attention</span>` : ''}`;
 }
 
 function statusPill(w) {
@@ -811,7 +843,15 @@ function render() {
   const tb = $('#workers');
   if (!lastWorkers.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 6, class: 'empty' }, 'No connections yet — drop .ovpn files below to add one.'))); updateSelCount(); return; }
   const rows = filteredWorkers();
-  if (!rows.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 6, class: 'empty' }, 'No connections match the current filter.'))); updateSelCount(); syncSelAll(); return; }
+  if (!rows.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 6, class: 'empty' }, 'No connections match the current filter.'))); _renderSig = 'empty'; updateSelCount(); syncSelAll(); return; }
+  // Skip the DOM swap when nothing visible changed — avoids 5s flicker and
+  // preserves hover/focus/selection while idle.
+  const sig = JSON.stringify([filterText, filterStatus, filterTag, [...selected].sort(),
+    rows.map(w => { const ip = w.ipinfo || {}, rt = rateNow[w.name] || {};
+      return [w.name, w.exists, w.vpn, w.health, w.gaveup ? 1 : 0, ip.ip || '', ip.country_iso || '',
+        uptime(w.started_at), (rt.down || 0).toFixed(1), (rt.up || 0).toFixed(1), (w.tags || []).join(',')]; })]);
+  if (sig === _renderSig) return;
+  _renderSig = sig;
   tb.replaceChildren(...rows.map(w => {
     const p = profiles[w.name] || {}, ip = w.ipinfo || {}, st = w.stats;
     const running = w.exists && w.vpn === 'running';
@@ -1230,18 +1270,20 @@ function axisChart(values, ts, { w, h = 230, color = 'var(--accent)', unit = '' 
 const _arrowUp = _svg('<path d="M7 17 17 7"/><path d="M8 7h9v9"/>');
 const _arrowDown = _svg('<path d="M7 7 17 17"/><path d="M17 8v9H8"/>');
 const _arrowFlat = _svg('<path d="M5 12h14"/><path d="M15 8l4 4-4 4"/>');
-function deltaBadge(n) {
-  if (n > 0) return el('span', { class: 'delta up', html: _arrowUp + '+' + n });
-  if (n < 0) return el('span', { class: 'delta down', html: _arrowDown + '-' + Math.abs(n) });
-  return el('span', { class: 'delta flat', html: _arrowFlat + 'no change' });
+function deltaBadge(n, fmt) {
+  const mag = fmt ? fmt(Math.abs(n)) : String(Math.abs(n));
+  const title = 'change over the shown window';
+  if (n > 0) return el('span', { class: 'delta up', title, html: _arrowUp + '+' + mag });
+  if (n < 0) return el('span', { class: 'delta down', title, html: _arrowDown + '-' + mag });
+  return el('span', { class: 'delta flat', title, html: _arrowFlat + 'no change' });
 }
-function kpiCard(icon, label, value, sub, deltaN, series, color) {
+function kpiCard(icon, label, value, sub, deltaN, series, color, deltaFmt) {
   const ico = el('span', { class: 'kpi-ico', html: icon });
   ico.style.background = `color-mix(in srgb, ${color} 15%, transparent)`;
   ico.style.color = color;
   return el('div', { class: 'kpi' },
     el('div', { class: 'kpi-top' }, ico, label),
-    el('div', { class: 'kpi-val' }, value, sub ? el('small', {}, sub) : '', deltaBadge(deltaN)),
+    el('div', { class: 'kpi-val' }, value, sub ? el('small', {}, sub) : '', deltaBadge(deltaN, deltaFmt)),
     el('div', { class: 'spark-wrap', html: chartSVG(series, { w: 150, h: 40, color }) }));
 }
 const fmtData = mb => mb >= 1024 ? (mb / 1024).toFixed(2) + ' GB' : (mb || 0).toFixed(1) + ' MB';
@@ -1353,6 +1395,7 @@ function renderExitMap() {
 /* live overview panels driven by lastWorkers */
 function renderOverviewLive() {
   if (!$('#view-overview').classList.contains('active')) return;
+  $('#firstRun').style.display = lastWorkers.length ? 'none' : 'flex';
   renderExitMap();
   const defs = [
     { key: 'connected', label: 'Connected', color: 'var(--c-green)' },
@@ -1416,7 +1459,7 @@ async function loadMetrics() {
     kpiCard(KICON.conns, 'Connections', String(last.conns), '', last.conns - first.conns, m.map(p => p.conns), 'var(--c-blue)'),
     kpiCard(KICON.online, 'Online', String(last.online), 'of ' + last.conns, last.online - first.online, m.map(p => p.online), 'var(--c-teal)'),
     kpiCard(KICON.healthy, 'Healthy', String(last.healthy), '', last.healthy - first.healthy, m.map(p => p.healthy), 'var(--c-green)'),
-    kpiCard(KICON.data, 'Data transferred', fmtData(tot[tot.length - 1]), '', Math.round(tot[tot.length - 1] - tot[0]), tot, 'var(--c-violet)'),
+    kpiCard(KICON.data, 'Data transferred', fmtData(tot[tot.length - 1]), '', Math.round(tot[tot.length - 1] - tot[0]), tot, 'var(--c-violet)', fmtData),
   );
   const tsArr = m.map(p => p.ts);
   const W = Math.max(320, $('#thrChart').clientWidth || 800);
@@ -1535,10 +1578,18 @@ $('#saveToken').onclick = () => {
   if (token) go('connections');
 };
 
+$('#firstRunGo').onclick = () => go('connections');
+
 /* boot */
 go(token ? 'overview' : 'settings');
 refresh(); refreshScripts(); loadSettings();
-setInterval(refresh, 5000);
+
+/* poll only while the tab is visible — no background churn, fresh on return */
+let pollTimer = setInterval(refresh, 5000);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { clearInterval(pollTimer); pollTimer = null; }
+  else if (!pollTimer) { refresh(); pollTimer = setInterval(refresh, 5000); }
+});
 </script>
 </body>
 </html>
