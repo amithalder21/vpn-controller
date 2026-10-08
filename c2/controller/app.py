@@ -423,6 +423,26 @@ def create_worker(name):
     )
 
 
+def _proxy_configured(vpn):
+    """True if this vpn container was created with the proxy port published."""
+    pb = (vpn.attrs.get("HostConfig") or {}).get("PortBindings") or {}
+    return f"{GLUETUN_PROXY_PORT}/tcp" in pb
+
+
+def _needs_recreate(vpn):
+    """Config drift: proxy pool on but this exit predates it (no proxy port)."""
+    return PROXY_POOL and vpn is not None and not _proxy_configured(vpn)
+
+
+def _recreate(name):
+    for role in ("app", "vpn"):
+        c = get(name, role)
+        if c:
+            c.remove(force=True)
+    create_worker(name)
+    ip_cache.pop(name, None)
+
+
 def _bounce(name):
     """Low-level restart used by the watchdog (no desired/heal bookkeeping)."""
     vpn, wapp = get(name, "vpn"), get(name, "app")
@@ -430,6 +450,9 @@ def _bounce(name):
         if wapp:
             wapp.remove(force=True)
         create_worker(name)
+        return
+    if _needs_recreate(vpn):     # migrate drifted exits to the current config
+        _recreate(name)
         return
     vpn.restart(timeout=5)
     if wapp:
@@ -446,6 +469,9 @@ def start_worker(name):
         if wapp:  # orphaned app container without its network owner
             wapp.remove(force=True)
         create_worker(name)
+        return
+    if _needs_recreate(vpn):     # pick up proxy settings on connect
+        _recreate(name)
         return
     vpn.start()
     if wapp:
