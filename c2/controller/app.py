@@ -556,6 +556,22 @@ def api_profiles():
     return jsonify([profile_summary(n) for n in list_profiles()])
 
 
+FUNKY_ADJ = ["swift", "crimson", "azure", "silent", "rogue", "tidal", "coral", "misty",
+             "salty", "amber", "shadow", "golden", "drifting", "restless", "iron", "velvet",
+             "storm", "frost", "ember", "dusky", "cobalt", "jade", "scarlet", "midnight"]
+FUNKY_NOUN = ["marlin", "otter", "kraken", "nomad", "corsair", "mariner", "petrel", "narwhal",
+              "orca", "gull", "barracuda", "tern", "albatross", "dolphin", "seahorse", "manta",
+              "urchin", "compass", "anchor", "harbor", "beacon", "reef", "current", "voyager"]
+
+def funky_name():
+    import random
+    for _ in range(80):
+        n = f"{random.choice(FUNKY_ADJ)}-{random.choice(FUNKY_NOUN)}"
+        if not os.path.exists(profile_path(n)):
+            return n
+    return "exit-" + uuid.uuid4().hex[:6]
+
+
 @app.post("/api/profiles")
 def api_upload_profiles():
     files = request.files.getlist("files")
@@ -563,10 +579,10 @@ def api_upload_profiles():
         abort(400, "send one or more files in the 'files' field")
     saved = []
     for f in files:
-        name = clean_name(f.filename or "")
         data = f.read()
         if b"remote " not in data:
             abort(400, f"{f.filename}: does not look like an OpenVPN profile (no 'remote' line)")
+        name = funky_name()  # memorable name; country/IP are shown separately
         with open(profile_path(name), "wb") as out:
             out.write(data)
         os.chmod(profile_path(name), 0o644)  # gluetun reads it as a non-root user

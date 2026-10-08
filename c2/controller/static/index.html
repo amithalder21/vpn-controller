@@ -143,7 +143,12 @@
   .pill.warn { color: var(--warn); background: var(--warn-bg); } .pill.warn .d { background: var(--warn); }
   .pill.bad { color: var(--bad); background: var(--bad-bg); } .pill.bad .d { background: var(--bad); }
   .pill.muted { color: var(--muted); background: var(--panel2); } .pill.muted .d { background: var(--muted); }
+  .statlbl { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; }
+  .statlbl .sdot { width: 7px; height: 7px; border-radius: 50%; }
+  .statlbl.ok { color: var(--text); } .statlbl.ok .sdot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+  .statlbl.muted { color: var(--muted); } .statlbl.muted .sdot { background: var(--muted); }
   .flag { font-size: 16px; margin-right: 6px; }
+  .flagbox { width: 26px; height: 19px; border-radius: 4px; display: inline-grid; place-items: center; font-size: 14px; line-height: 1; background: var(--panel2); border: 1px solid var(--line2); flex: none; overflow: hidden; }
   .muted { color: var(--muted); } .ok { color: var(--ok); } .bad { color: var(--bad); }
 
   input[type=text], input[type=password], input[type=number], select, textarea {
@@ -259,7 +264,6 @@
     <header class="topbar">
       <h1 id="viewTitle">Connections</h1>
       <span class="sp"></span>
-      <span class="conn" id="connTop"><span class="dot wait"></span><span id="connTopText">connecting…</span></span>
     </header>
     <div class="view-wrap">
 
@@ -286,7 +290,7 @@
         </div>
         <section class="panel">
           <div class="sec-h">
-            <h2>Connections</h2>
+            <span id="connSummary" class="muted" style="font-size:12.5px">—</span>
             <span class="sp"></span>
             <div class="btn-row">
               <button data-bulk="start" class="primary sm">Connect all</button>
@@ -459,7 +463,7 @@ const _svg = p => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const ICON = {
   more: _svg('<circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/>'),
   power: _svg('<path d="M12 2v9"/><path d="M6.6 6.6a9 9 0 1 0 10.8 0"/>'),
-  chevron: _svg('<path d="M9 6l6 6-6 6"/>'),
+  info: _svg('<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12" y2="8"/>'),
 };
 
 function el(tag, attrs = {}, ...kids) {
@@ -599,16 +603,20 @@ function renderStats(plist, workers) {
   const issues = workers.filter(w => w.gaveup || (w.exists && (w.vpn !== 'running' || w.health === 'unhealthy'))).length;
   const badge = $('#navIssues');
   badge.textContent = issues; badge.classList.toggle('show', issues > 0);
+  const cs = $('#connSummary');
+  if (cs) cs.innerHTML = `<b style="color:var(--text)">${plist.length}</b> exit${plist.length === 1 ? '' : 's'} · ${healthy.length} connected${issues ? ` · <span style="color:var(--bad)">${issues} need attention</span>` : ''}`;
 }
 
 function statusPill(w) {
-  let cls = 'muted', label = 'Offline';
+  let cls = 'muted', label = 'Offline', strong = false;
   if (!w.exists) { cls = 'muted'; label = 'Offline'; }
   else if (w.vpn !== 'running') { cls = 'muted'; label = w.vpn === 'exited' ? 'Disconnected' : 'Stopped'; }
   else if (w.health === 'healthy') { cls = 'ok'; label = 'Connected'; }
-  else if (w.health === 'unhealthy') { cls = 'bad'; label = 'Error'; }
-  else { cls = 'warn'; label = 'Connecting'; }
-  return el('span', { class: 'pill ' + cls }, el('span', { class: 'd' }), label);
+  else if (w.health === 'unhealthy') { cls = 'bad'; label = 'Error'; strong = true; }
+  else { cls = 'warn'; label = 'Connecting'; strong = true; }
+  // errors/connecting get a bold pill; the normal "Connected" state is a quiet dot+label
+  if (strong) return el('span', { class: 'pill ' + cls }, el('span', { class: 'd' }), label);
+  return el('span', { class: 'statlbl ' + cls }, el('span', { class: 'sdot' }), label);
 }
 
 function populateTagFilter() {
@@ -641,13 +649,14 @@ function render() {
         w.gaveup ? el('span', { class: 'attn', title: 'Auto-heal gave up — reconnect to retry' }, 'needs attention') : '',
         ...tagEls));
 
-    // EXIT — one line: flag + country · IP
+    // EXIT — flag + country on top, IP beneath (segregated)
     let exitCell;
     if (ip.error) exitCell = el('td', {}, el('span', { class: 'bad' }, ip.error.slice(0, 40)));
     else if (ip.ip) exitCell = el('td', { title: [ip.city, ip.region, ip.org].filter(Boolean).join(' · ') },
-      flag(ip.country_iso) ? el('span', { class: 'flag' }, flag(ip.country_iso)) : '',
-      el('span', {}, ip.country || ip.city || '—'),
-      el('span', { class: 'csub mono', style: 'margin-left:8px' }, ip.ip));
+      el('div', { style: 'display:flex;align-items:center;gap:8px' },
+        el('span', { class: 'flagbox' }, flag(ip.country_iso) || '🏳'),
+        el('span', { style: 'font-weight:500' }, ip.country || ip.city || '—')),
+      el('div', { class: 'csub mono', style: 'margin-left:34px' }, ip.ip));
     else exitCell = el('td', {}, el('span', { class: 'muted' }, (running && w.health !== 'unhealthy') ? 'checking…' : '—'));
 
     // STATUS — pill + context subline that matches the state (no "up" time on broken rows)
@@ -663,8 +672,8 @@ function render() {
     // ACTIONS — quick power toggle; click the row (or ›) opens the full detail panel
     const power = el('button', { class: 'pwr' + (running ? ' on' : ''), title: running ? 'Disconnect' : 'Connect', html: ICON.power,
       onclick: e => { e.stopPropagation(); run(() => api('POST', `/api/workers/${w.name}/${running ? 'stop' : 'start'}`))(); } });
-    const chev = el('button', { class: 'kebab', title: 'Details & actions', html: ICON.chevron, onclick: e => { e.stopPropagation(); openDetail(w.name); } });
-    const actionsCell = el('td', { style: 'text-align:right' }, el('div', { class: 'actions-group' }, power, chev));
+    const details = el('button', { class: 'kebab', title: 'Details & actions', html: ICON.info, onclick: e => { e.stopPropagation(); openDetail(w.name); } });
+    const actionsCell = el('td', { style: 'text-align:right' }, el('div', { class: 'actions-group' }, power, details));
 
     box.addEventListener('click', e => e.stopPropagation());
     const tr = el('tr', { style: 'cursor:pointer' }, el('td', {}, box), nameCell, exitCell, statusCell, actionsCell);
