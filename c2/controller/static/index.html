@@ -349,6 +349,16 @@
           </section>
         </div>
         <section class="panel">
+          <div class="sec-h"><h2>Live throughput</h2><span class="muted" style="font-size:11.5px">per second</span><span class="sp"></span><span class="count-chip" id="rateNowChip"></span></div>
+          <div class="sec-b">
+            <div class="stats" style="grid-template-columns:repeat(2,1fr);margin-bottom:12px">
+              <div class="stat"><div class="n" id="rateDown">—</div><div class="l">Download · fleet</div></div>
+              <div class="stat"><div class="n" id="rateUp">—</div><div class="l">Upload · fleet</div></div>
+            </div>
+            <div class="chartwrap" id="rateChart" style="height:150px"><div class="empty">Sampling… rates appear after a few seconds.</div></div>
+          </div>
+        </section>
+        <section class="panel">
           <div class="sec-h"><h2>Data transferred</h2><span class="muted" style="font-size:11.5px">cumulative</span><span class="sp"></span><span class="count-chip" id="thrTotal"></span></div>
           <div class="sec-b"><div class="chartwrap" id="thrChart"><div class="empty">Collecting data…</div></div></div>
         </section>
@@ -401,9 +411,9 @@
             <table>
               <thead><tr>
                 <th style="width:28px"><input type="checkbox" id="selAll" class="chk"></th>
-                <th>Name</th><th>Exit location</th><th>Status</th><th style="text-align:right">Actions</th>
+                <th>Name</th><th>Exit location</th><th>Status</th><th>Throughput</th><th style="text-align:right">Actions</th>
               </tr></thead>
-              <tbody id="workers"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+              <tbody id="workers"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
             </table>
           </div>
           <div class="sec-b">
@@ -684,6 +694,35 @@ document.querySelectorAll('.nav-item').forEach(n => n.addEventListener('click', 
 let profiles = {}, selected = new Set(), lastWorkers = [];
 let filterText = '', filterStatus = 'all', filterTag = '';
 
+/* live throughput: derive MB/s from successive cumulative stats samples */
+let rateNow = {}, fleetRateHist = [], _ratePrev = {};
+function computeRates(workers) {
+  const now = Date.now();
+  let fd = 0, fu = 0, have = false;
+  const next = {};
+  for (const w of workers) {
+    const st = w.stats;
+    if (!st || st.rx_mb == null) continue;
+    next[w.name] = { rx: st.rx_mb, tx: st.tx_mb, t: now };
+    const prev = _ratePrev[w.name];
+    if (prev) {
+      const dt = (now - prev.t) / 1000;
+      if (dt > 0.5) {
+        // counters reset to a lower value on reconnect → clamp negatives to 0
+        const d = Math.max(0, st.rx_mb - prev.rx) / dt;
+        const u = Math.max(0, st.tx_mb - prev.tx) / dt;
+        rateNow[w.name] = { down: d, up: u };
+        fd += d; fu += u; have = true;
+      }
+    }
+  }
+  _ratePrev = next;
+  for (const n of Object.keys(rateNow)) if (!next[n]) delete rateNow[n];
+  if (have) { fleetRateHist.push({ t: Math.floor(now / 1000), down: fd, up: fu }); if (fleetRateHist.length > 160) fleetRateHist.shift(); }
+}
+const fmtRate = v => (!v || v < 5e-4) ? '0' : (v < 1 ? (v * 1024).toFixed(0) + ' KB/s' : v.toFixed(2) + ' MB/s');
+function fmtRateBig(v) { const s = fmtRate(v); const i = s.indexOf(' '); return i < 0 ? s + '<small> MB/s</small>' : `${s.slice(0, i)}<small> ${s.slice(i + 1)}</small>`; }
+
 function matchStatus(w) {
   const running = w.exists && w.vpn === 'running';
   if (filterStatus === 'connected') return running && w.health === 'healthy';
@@ -719,6 +758,7 @@ async function refresh() {
     const [plist, workers] = await Promise.all([api('GET', '/api/profiles'), api('GET', '/api/workers')]);
     profiles = Object.fromEntries(plist.map(p => [p.name, p]));
     lastWorkers = workers;
+    computeRates(workers);
     render();
     renderDetail();
     renderStats(plist, workers);
@@ -727,7 +767,7 @@ async function refresh() {
     renderOverviewLive();
     if ($('#view-overview').classList.contains('active')) loadMetrics();
   } catch (e) {
-    if (e.status === 401) { setConn('err', 'bad / missing token'); $('#workers').replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'Add your control token in Settings to connect.'))); }
+    if (e.status === 401) { setConn('err', 'bad / missing token'); $('#workers').replaceChildren(el('tr', {}, el('td', { colspan: 6, class: 'empty' }, 'Add your control token in Settings to connect.'))); }
     else { setConn('err', 'offline'); }
   }
 }
@@ -769,9 +809,9 @@ function populateTagFilter() {
 function render() {
   populateTagFilter();
   const tb = $('#workers');
-  if (!lastWorkers.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'No connections yet — drop .ovpn files below to add one.'))); updateSelCount(); return; }
+  if (!lastWorkers.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 6, class: 'empty' }, 'No connections yet — drop .ovpn files below to add one.'))); updateSelCount(); return; }
   const rows = filteredWorkers();
-  if (!rows.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'No connections match the current filter.'))); updateSelCount(); syncSelAll(); return; }
+  if (!rows.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 6, class: 'empty' }, 'No connections match the current filter.'))); updateSelCount(); syncSelAll(); return; }
   tb.replaceChildren(...rows.map(w => {
     const p = profiles[w.name] || {}, ip = w.ipinfo || {}, st = w.stats;
     const running = w.exists && w.vpn === 'running';
@@ -809,6 +849,19 @@ function render() {
     const statusCell = el('td', { title: dataTip }, statusPill(w),
       sub ? el('span', { class: 'csub' + (w.health === 'unhealthy' ? ' bad' : ''), style: 'margin-left:8px' }, sub) : '');
 
+    // THROUGHPUT — live per-exit rate (MB/s), sampled client-side between refreshes
+    const rate = rateNow[w.name];
+    let rateCell;
+    if (connected && rate && (rate.down > 5e-4 || rate.up > 5e-4)) {
+      const n = v => v < 1 ? v.toFixed(2) : v.toFixed(1);
+      rateCell = el('td', { class: 'mono', style: 'font-size:12px;white-space:nowrap' },
+        el('span', {}, '↓ ' + n(rate.down)),
+        el('span', { style: 'margin-left:9px' }, '↑ ' + n(rate.up)),
+        el('span', { class: 'muted', style: 'margin-left:5px;font-size:10.5px' }, 'MB/s'));
+    } else {
+      rateCell = el('td', {}, el('span', { class: 'muted' }, connected ? 'idle' : '—'));
+    }
+
     // ACTIONS — quick power toggle; click the row (or ›) opens the full detail panel
     const power = el('button', { class: 'ibtn' + (running ? ' on' : ''), title: running ? 'Disconnect' : 'Connect', html: ICON.power,
       onclick: e => { e.stopPropagation(); run(() => api('POST', `/api/workers/${w.name}/${running ? 'stop' : 'start'}`))(); } });
@@ -818,7 +871,7 @@ function render() {
     const actionsCell = el('td', { style: 'text-align:right' }, el('div', { class: 'actions-group' }, power, logsBtn, reconnectBtn, details));
 
     box.addEventListener('click', e => e.stopPropagation());
-    const tr = el('tr', { style: 'cursor:pointer' }, el('td', {}, box), nameCell, exitCell, statusCell, actionsCell);
+    const tr = el('tr', { style: 'cursor:pointer' }, el('td', {}, box), nameCell, exitCell, statusCell, rateCell, actionsCell);
     tr.addEventListener('click', () => openDetail(w.name));
     return tr;
   }));
@@ -877,6 +930,7 @@ function renderDetail() {
     fact('Location', ip.ip ? el('span', { style: 'display:inline-flex;align-items:center;gap:8px' }, el('span', { class: 'ccode' }, (ip.country_iso || '??').toUpperCase()), [ip.city, ip.country].filter(Boolean).join(', ') || '—') : el('span', { class: 'muted' }, '—')),
     fact('Uptime', running && w.health === 'healthy' ? uptime(w.started_at) : el('span', { class: 'muted' }, running ? 'not connected' : 'offline')),
     fact('Data used', st && st.rx_mb != null ? `${st.rx_mb} MB in  ·  ${st.tx_mb} MB out` : '—'),
+    fact('Throughput', (() => { const r = rateNow[w.name]; return (running && r) ? `↓ ${fmtRate(r.down)}  ·  ↑ ${fmtRate(r.up)}` : el('span', { class: 'muted' }, running ? 'idle' : '—'); })()),
     fact('Server', el('span', { class: 'mono' }, `${p.remote || '?'}${p.proto ? ' · ' + p.proto.toUpperCase() : ''}`)),
     fact('ISP / ASN', ip.org ? el('span', { class: 'muted' }, ip.org) : '—'),
     fact('Restarts', String(w.restarts || 0)),
@@ -1137,6 +1191,7 @@ function niceNum(x) {
 }
 function fmtY(v, unit) {
   if (unit === 'MB') return v >= 1024 ? (v / 1024).toFixed(1) + 'GB' : Math.round(v) + 'MB';
+  if (unit === 'rate') return v >= 1 ? v.toFixed(v >= 10 ? 0 : 1) : (v > 0 ? (v * 1024).toFixed(0) + 'K' : '0');
   return String(Math.round(v));
 }
 // full chart with X (time) and Y (value) axes + gridlines
@@ -1334,6 +1389,19 @@ function renderOverviewLive() {
       el('span', { class: 'hbar-track' }, el('span', { class: 'hbar-fill', style: `width:${Math.max(3, r.mb / max * 100)}%;background:${colorFor(r.bucket)}` })),
       el('span', { class: 'hbar-v' }, fmtData(r.mb)))));
     $('#barTotal').textContent = fmtData(rows.reduce((a, r) => a + r.mb, 0)) + ' shown';
+  }
+  renderThroughput();
+}
+
+function renderThroughput() {
+  const cur = fleetRateHist[fleetRateHist.length - 1];
+  $('#rateDown').innerHTML = cur ? fmtRateBig(cur.down) : '—';
+  $('#rateUp').innerHTML = cur ? fmtRateBig(cur.up) : '—';
+  $('#rateNowChip').textContent = cur ? `↓ ${fmtRate(cur.down)} · ↑ ${fmtRate(cur.up)}` : '';
+  if (fleetRateHist.length >= 2) {
+    const W = Math.max(320, $('#rateChart').clientWidth || 800);
+    $('#rateChart').innerHTML = axisChart(fleetRateHist.map(p => p.down + p.up), fleetRateHist.map(p => p.t),
+      { w: W, h: 150, color: 'var(--c-teal)', unit: 'rate' });
   }
 }
 
