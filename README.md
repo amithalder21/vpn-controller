@@ -30,8 +30,12 @@ egress IP. From one control panel you can:
   un-tunnelled traffic even if a VPN drops.
 - **Stay up unattended** — an auto-heal watchdog reconnects dropped/unhealthy
   tunnels, with activity logging and optional webhook alerts.
-- **Watch trends** — an Overview dashboard with KPI cards and time-series charts
-  (connections online, healthy, data transferred) backed by a metrics history.
+- **See the fleet geographically** — an Overview world map plots every exit at
+  its egress country, colored by health, so you know where your traffic leaves
+  from at a glance.
+- **Watch trends** — an Overview dashboard with KPI cards (with trend arrows), a
+  fleet-status donut, per-exit data bars, and time-series charts (connections
+  online, healthy, data transferred) backed by a metrics history.
 
 Everything in the UI is also a token-authenticated JSON API, so it scripts cleanly.
 
@@ -87,7 +91,9 @@ then:
 ## UI tour
 
 - **Overview** — KPI cards (connections, online, healthy, data transferred) with
-  trend deltas and sparklines, plus throughput and online-over-time charts.
+  trend arrows and sparklines; a world map of exit locations colored by health; a
+  fleet-status donut (connected / connecting / needs attention / offline); a
+  "data by exit" bar chart; plus throughput and online-over-time charts.
 - **Connections** — the fleet table: name, exit location (country code + IP),
   status, and per-row quick actions (power, logs, reconnect, details). Click a
   row for a detail drawer with every fact and action. Search, filter by status,

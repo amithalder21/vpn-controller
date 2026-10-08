@@ -115,6 +115,21 @@
   .delta { display: inline-flex; align-items: center; gap: 2px; }
   .delta svg { width: 12px; height: 12px; }
 
+  /* world map */
+  .mapwrap { position: relative; width: 100%; }
+  .mapwrap svg.map { width: 100%; height: auto; display: block; }
+  .map-land { fill: var(--panel2); stroke: var(--line); stroke-width: .5; }
+  .map-dot { cursor: pointer; transition: opacity .12s; }
+  .map-dot:hover { opacity: .82; }
+  .map-ring { fill: none; opacity: .55; }
+  .map-lbl { fill: #fff; font-size: 11px; font-weight: 700; text-anchor: middle; pointer-events: none; font-family: inherit; paint-order: stroke; }
+  .map-foot { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line2); }
+  .map-leg { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .map-leg .lg-d { width: 9px; height: 9px; border-radius: 50%; }
+  .map-tip { position: absolute; z-index: 5; pointer-events: none; background: var(--ink); color: var(--ink-text); font-size: 12px; font-weight: 500; padding: 6px 9px; border-radius: 8px; box-shadow: 0 6px 20px rgba(16,24,40,.22); white-space: nowrap; transform: translate(-50%, -120%); opacity: 0; transition: opacity .1s; }
+  .map-tip.show { opacity: 1; }
+  .map-tip .tt-sub { color: color-mix(in srgb, var(--ink-text) 62%, transparent); font-weight: 400; }
+
   /* stats */
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
   @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
@@ -308,6 +323,12 @@
       <!-- OVERVIEW -->
       <section id="view-overview" class="view active">
         <div class="kpis" id="kpis"></div>
+        <section class="panel">
+          <div class="sec-h"><h2>Exit map</h2><span class="muted" style="font-size:11.5px">where your tunnels egress</span><span class="sp"></span><span class="count-chip" id="mapSummary"></span></div>
+          <div class="sec-b">
+            <div class="mapwrap" id="exitMap"><div class="empty">Loading map…</div></div>
+          </div>
+        </section>
         <div class="ov-row">
           <section class="panel">
             <div class="sec-h"><h2>Fleet status</h2><span class="sp"></span><span class="count-chip" id="fleetTotal"></span></div>
@@ -1136,9 +1157,80 @@ function statusBucket(w) {
   return 'offline';
 }
 
+/* ---------- exit world map ----------
+   static/mapdata.json holds an equirectangular land silhouette (Natural Earth,
+   public domain, via world-atlas) + country centroids (mledoze/world-countries,
+   ODbL). Markers are placed by exit country_iso onto the same projection. */
+let MAPDATA = null, _mapState = 'idle'; // idle | loading | ready | failed
+async function ensureMapData() {
+  if (_mapState === 'loading' || _mapState === 'ready') return;
+  _mapState = 'loading';
+  try {
+    const r = await fetch('/static/mapdata.json', { cache: 'force-cache' });
+    if (!r.ok) throw new Error('http ' + r.status);
+    MAPDATA = await r.json(); _mapState = 'ready';
+  } catch (e) { _mapState = 'failed'; }
+  if ($('#view-overview').classList.contains('active')) renderExitMap();
+}
+function renderExitMap() {
+  const box = $('#exitMap'); if (!box) return;
+  if (_mapState === 'failed') { box.innerHTML = '<div class="empty">Map unavailable.</div>'; return; }
+  if (!MAPDATA) { ensureMapData(); return; }
+  // Build the base map (land + static chrome) once; only the dots layer updates on refresh.
+  if (!box.querySelector('svg.map')) {
+    box.innerHTML =
+      `<svg class="map" viewBox="0 0 ${MAPDATA.w} ${MAPDATA.h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map of exit locations"><path class="map-land" d="${MAPDATA.land}"/><g id="mapDots"></g></svg>`
+      + '<div class="empty" id="mapEmpty" style="position:absolute;inset:0 0 44px;display:grid;place-items:center;pointer-events:none"></div>'
+      + `<div class="map-foot"><span class="map-leg"><span class="lg-d" style="background:var(--c-green)"></span>Connected</span><span class="map-leg"><span class="lg-d" style="background:var(--c-amber)"></span>Connecting</span><span class="map-leg"><span class="lg-d" style="background:var(--bad)"></span>Needs attention</span></div>`
+      + '<div class="map-tip" id="mapTip"></div>';
+  }
+  const cents = MAPDATA.cents, groups = {};
+  let located = 0;
+  lastWorkers.forEach(w => {
+    const iso = w.ipinfo && w.ipinfo.country_iso && w.ipinfo.country_iso.toLowerCase();
+    if (!iso || !cents[iso]) return;
+    const b = statusBucket(w);
+    if (b === 'offline') return;              // offline exits have no live location
+    located++;
+    const g = groups[iso] || (groups[iso] = { iso, name: iso.toUpperCase(), count: 0, buckets: {}, names: [] });
+    g.count++; g.buckets[b] = (g.buckets[b] || 0) + 1;
+    if (w.ipinfo.country) g.name = w.ipinfo.country;
+    g.names.push(w.name);
+  });
+  const isos = Object.keys(groups);
+  $('#mapSummary').textContent = isos.length
+    ? `${located} exit${located === 1 ? '' : 's'} · ${isos.length} ${isos.length === 1 ? 'country' : 'countries'}` : '';
+  const colorFor = g => g.buckets.attention ? 'var(--bad)' : g.buckets.connecting ? 'var(--c-amber)' : 'var(--c-green)';
+  const maxCount = Math.max(1, ...isos.map(i => groups[i].count));
+  const rFor = c => 6 + (c / maxCount) * 9;
+  let dots = '';
+  isos.forEach(i => {
+    const g = groups[i], xy = cents[i], col = colorFor(g), r = rFor(g.count);
+    dots += `<circle class="map-ring" cx="${xy[0]}" cy="${xy[1]}" r="${(r + 5).toFixed(1)}" stroke="${col}"/>`;
+    dots += `<circle class="map-dot" data-iso="${i}" cx="${xy[0]}" cy="${xy[1]}" r="${r.toFixed(1)}" fill="${col}"/>`;
+    if (g.count > 1) dots += `<text class="map-lbl" x="${xy[0]}" y="${(xy[1] + 3.6).toFixed(1)}">${g.count}</text>`;
+  });
+  box.querySelector('#mapDots').innerHTML = dots;
+  box.querySelector('#mapEmpty').textContent = isos.length ? '' : 'No located exits yet — connect a tunnel to see it here.';
+  const tip = box.querySelector('#mapTip');
+  box.querySelectorAll('.map-dot').forEach(dot => {
+    const g = groups[dot.dataset.iso];
+    const show = () => {
+      const rc = dot.getBoundingClientRect(), wc = box.getBoundingClientRect();
+      tip.style.left = (rc.left + rc.width / 2 - wc.left) + 'px';
+      tip.style.top = (rc.top - wc.top) + 'px';
+      tip.innerHTML = `${g.name} <span class="tt-sub">· ${g.count} exit${g.count === 1 ? '' : 's'}</span>`;
+      tip.classList.add('show');
+    };
+    dot.addEventListener('mouseenter', show);
+    dot.addEventListener('mouseleave', () => tip.classList.remove('show'));
+  });
+}
+
 /* live overview panels driven by lastWorkers */
 function renderOverviewLive() {
   if (!$('#view-overview').classList.contains('active')) return;
+  renderExitMap();
   const defs = [
     { key: 'connected', label: 'Connected', color: 'var(--c-green)' },
     { key: 'connecting', label: 'Connecting', color: 'var(--c-amber)' },
