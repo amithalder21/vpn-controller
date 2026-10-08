@@ -114,6 +114,9 @@ vantage points at once — reliably, and from one place.**
 - **Schedules (cron)** — run any script on a schedule (presets or a custom 5-field
   expression); see next/last run, enable or pause, or run on demand.
 - **Job history** — browse recent runs and re-open their output.
+- **Built-in QA/perf scripts** — `geo-check`, `latency`, `throughput`, and
+  `uptime-probe` ship by default in the script library (edit the `TARGET` at the
+  top and run on all exits). See [`c2/controller/examples/`](c2/controller/examples/).
 
 ### Trust & safety
 - **Leak test** confirms traffic really leaves through the tunnel (exit IP ≠ host IP).

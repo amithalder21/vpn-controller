@@ -11,6 +11,7 @@ import hmac
 import json
 import os
 import re
+import shutil
 import threading
 import time
 import uuid
@@ -24,6 +25,7 @@ from flask import Flask, Response, abort, jsonify, request, send_from_directory
 PREFIX = os.environ.get("WORKER_PREFIX", "mvpn")
 PROFILES_DIR = "/profiles"
 SCRIPTS_DIR = "/scripts"
+EXAMPLES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "examples")
 PROFILES_VOLUME = os.environ.get("PROFILES_VOLUME", "mvpn-profiles")
 NETWORK = os.environ.get("WORKER_NETWORK", "mvpn-net")
 VPN_IMAGE = os.environ.get("VPN_IMAGE", "qmcgaw/gluetun:latest")
@@ -502,6 +504,26 @@ def list_scripts():
     if not os.path.isdir(SCRIPTS_DIR):
         return []
     return sorted(f for f in os.listdir(SCRIPTS_DIR) if f.endswith(".sh"))
+
+
+def seed_example_scripts():
+    """Copy bundled example scripts into SCRIPTS_DIR when missing.
+
+    Non-destructive: a script of the same name (e.g. one the user edited) is
+    never overwritten; a deleted default simply reappears on next start.
+    """
+    if not os.path.isdir(EXAMPLES_DIR):
+        return
+    for fn in sorted(os.listdir(EXAMPLES_DIR)):
+        if not fn.endswith(".sh"):
+            continue
+        dst = os.path.join(SCRIPTS_DIR, fn)
+        if os.path.exists(dst):
+            continue
+        try:
+            shutil.copyfile(os.path.join(EXAMPLES_DIR, fn), dst)
+        except OSError:
+            pass
 
 
 def script_path(name):
@@ -1326,6 +1348,7 @@ if __name__ == "__main__":
         pass
     os.makedirs(PROFILES_DIR, exist_ok=True)
     os.makedirs(SCRIPTS_DIR, exist_ok=True)
+    seed_example_scripts()
     threading.Thread(target=_loop, args=(_heal_once, HEAL_INTERVAL), daemon=True).start()
     threading.Thread(target=_loop, args=(_stats_once, 8), daemon=True).start()
     threading.Thread(target=_loop, args=(_ipcheck_once, 10), daemon=True).start()
