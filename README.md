@@ -235,6 +235,7 @@ All `/api/*` calls require `X-Token: <CONTROL_TOKEN>` (SSE endpoints take it as
 | `GET  /api/events`                      | recent activity                                                 |
 | `GET/POST /api/settings`                | read / toggle auto-heal                                         |
 | `GET  /api/proxy`                       | proxy-pool status: round-robin port + per-exit proxy ports      |
+| `POST /api/proxy/<name>`                | include/exclude an exit from the round-robin pool `{"pool":bool}`|
 | `GET/POST /api/schedules`               | list / create cron schedules `{"name","cron","script"\|"body","targets","timeout"}` |
 | `POST/DELETE /api/schedules/<id>`       | update (enable, cron, target, source…) / delete a schedule      |
 | `POST /api/schedules/<id>/run`          | run a schedule now → job id (tail via `/api/jobs/<id>/stream`)   |
