@@ -472,6 +472,8 @@ const ICON = {
   more: _svg('<circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/>'),
   power: _svg('<path d="M12 2v9"/><path d="M6.6 6.6a9 9 0 1 0 10.8 0"/>'),
   info: _svg('<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12" y2="8"/>'),
+  logs: _svg('<path d="M4 6h16M4 12h16M4 18h10"/>'),
+  reconnect: _svg('<path d="M21 4v6h-6"/><path d="M18.9 14.5a8 8 0 1 1-1.9-8.3L21 10"/>'),
 };
 
 function el(tag, attrs = {}, ...kids) {
@@ -680,8 +682,10 @@ function render() {
     // ACTIONS — quick power toggle; click the row (or ›) opens the full detail panel
     const power = el('button', { class: 'pwr' + (running ? ' on' : ''), title: running ? 'Disconnect' : 'Connect', html: ICON.power,
       onclick: e => { e.stopPropagation(); run(() => api('POST', `/api/workers/${w.name}/${running ? 'stop' : 'start'}`))(); } });
+    const logsBtn = el('button', { class: 'kebab', title: 'Live logs', html: ICON.logs, onclick: e => { e.stopPropagation(); streamLogs(w.name); } });
+    const reconnectBtn = el('button', { class: 'kebab', title: 'Reconnect', html: ICON.reconnect, onclick: e => { e.stopPropagation(); run(() => api('POST', `/api/workers/${w.name}/restart`))(); } });
     const details = el('button', { class: 'kebab', title: 'Details & actions', html: ICON.info, onclick: e => { e.stopPropagation(); openDetail(w.name); } });
-    const actionsCell = el('td', { style: 'text-align:right' }, el('div', { class: 'actions-group' }, power, details));
+    const actionsCell = el('td', { style: 'text-align:right' }, el('div', { class: 'actions-group' }, power, logsBtn, reconnectBtn, details));
 
     box.addEventListener('click', e => e.stopPropagation());
     const tr = el('tr', { style: 'cursor:pointer' }, el('td', {}, box), nameCell, exitCell, statusCell, actionsCell);
