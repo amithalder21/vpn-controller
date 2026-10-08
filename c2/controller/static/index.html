@@ -960,16 +960,20 @@ async function leakTest(name) {
 }
 /* ---------- connection detail drawer ---------- */
 let currentDetail = null;
+let _detailActionSig = '';
 function openDetail(name) {
   currentDetail = name;
   if (logSrc) { logSrc.close(); } $('#logsBox').style.display = 'none';
   $('#detailBox').style.display = 'flex';
+  _detailActionSig = '';
+  $('#dBody').replaceChildren(el('div', { id: 'dLive' }), el('div', { id: 'dActions' }));
   renderDetail();
 }
 function renderDetail() {
   if ($('#detailBox').style.display === 'none') return;
   const w = lastWorkers.find(x => x.name === currentDetail);
   if (!w) { $('#detailBox').style.display = 'none'; return; }
+  if (!$('#dLive')) $('#dBody').replaceChildren(el('div', { id: 'dLive' }), el('div', { id: 'dActions' }));
   const p = profiles[w.name] || {}, ip = w.ipinfo || {}, st = w.stats;
   const running = w.exists && w.vpn === 'running';
   $('#dName').textContent = w.name;
@@ -1005,23 +1009,36 @@ function renderDetail() {
     fact('Restarts', String(w.restarts || 0)),
     fact('Tags', (w.tags && w.tags.length) ? el('span', { class: 'tags' }, ...w.tags.map(t => el('span', { class: 'tag-chip' }, '#' + t))) : el('span', { class: 'muted' }, 'none')),
   );
-  const run = (fn) => async () => { try { await fn(); } catch (e) { toast(w.name + ': ' + e.message, 'err'); } refresh(); };
+  // live section (banner + facts) refreshes every tick
+  $('#dLive').replaceChildren(banner, facts);
+
+  // action buttons are rebuilt ONLY when the connection's state changes,
+  // so a periodic refresh never recreates a button mid-click
+  const sig = [w.name, running, w.health || '', w.exists].join('|');
+  if (sig === _detailActionSig) return;
+  _detailActionSig = sig;
+  const run = (fn, note) => async (ev) => {
+    if (ev && ev.currentTarget) ev.currentTarget.disabled = true;
+    if (note) toast(w.name + ': ' + note, 'info', 1400);
+    try { await fn(); } catch (e) { toast(w.name + ': ' + e.message, 'err'); }
+    refresh();
+  };
   const btn = (label, fn, cls = 'sm') => el('button', { class: cls, onclick: fn }, label);
   const groups = el('div', {},
     el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Connection'), el('div', { class: 'arow' },
-      running ? btn('Disconnect', run(() => api('POST', `/api/workers/${w.name}/stop`)))
-              : btn('Connect', run(() => api('POST', `/api/workers/${w.name}/start`)), 'primary sm'),
-      btn('Reconnect', run(() => api('POST', `/api/workers/${w.name}/restart`))),
+      running ? btn('Disconnect', run(() => api('POST', `/api/workers/${w.name}/stop`), 'disconnecting…'))
+              : btn('Connect', run(() => api('POST', `/api/workers/${w.name}/start`), 'connecting…'), 'primary sm'),
+      btn('Reconnect', run(() => api('POST', `/api/workers/${w.name}/restart`), 'reconnecting…')),
       btn('Live logs', () => streamLogs(w.name)))),
     el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Exit'), el('div', { class: 'arow' },
-      btn('Check exit IP', run(() => api('POST', `/api/workers/${w.name}/ip`))),
+      btn('Check exit IP', run(() => api('POST', `/api/workers/${w.name}/ip`), 'checking exit IP…')),
       btn('Test exit (leak)', () => leakTest(w.name)))),
     el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Configuration'), el('div', { class: 'arow' },
       btn('Edit tags…', () => editTags(w)),
       btn('Rename…', () => renameConn(w.name)),
       btn('Delete connection', () => confirm(`Delete connection “${w.name}”?\nThis removes its profile and containers.`) && run(() => api('DELETE', `/api/profiles/${w.name}`))(), 'danger sm'))),
   );
-  $('#dBody').replaceChildren(banner, facts, groups);
+  $('#dActions').replaceChildren(groups);
 }
 $('#dClose').onclick = () => { $('#detailBox').style.display = 'none'; currentDetail = null; };
 function syncSelAll() {
