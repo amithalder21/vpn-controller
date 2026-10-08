@@ -73,10 +73,11 @@
   .view-wrap { padding: 24px 28px 64px; max-width: 1360px; width: 100%; margin: 0 auto; }
   .view { display: none; }
   .view.active { display: block; }
-  #view-settings { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  #view-settings { max-width: 1120px; margin: 0 auto; }
+  #view-settings.active { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
   #view-settings > .panel { margin-bottom: 0; }
   #view-settings > .panel.full { grid-column: 1 / -1; }
-  @media (max-width: 900px) { #view-settings { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { #view-settings.active { grid-template-columns: 1fr; } }
 
   /* panels */
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-lg); margin-bottom: 16px; }
