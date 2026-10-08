@@ -394,6 +394,10 @@ def create_worker(name):
         # published only on the host loopback at a stable per-exit port.
         env["HTTPPROXY"] = "on"
         env["HTTPPROXY_LOG"] = "off"
+        # gluetun drops inbound by default; open the proxy port so it's
+        # reachable from the Docker network (round-robin front) and from the
+        # published host port (docker-proxy DNAT lands in this netns too).
+        env["FIREWALL_INPUT_PORTS"] = str(GLUETUN_PROXY_PORT)
         ports = {f"{GLUETUN_PROXY_PORT}/tcp": ("127.0.0.1", proxy_port(name))}
     vpn = client.containers.run(
         VPN_IMAGE,
@@ -489,8 +493,9 @@ def _exit_proxy_target(name):
 _rr_lock = threading.Lock()
 _rr_i = 0
 
-def _rr_pick():
-    """Next healthy exit's (name, (ip, port)) in round-robin order, or None."""
+def _rr_order():
+    """Healthy exits as (name, (ip, port)), rotated so each call starts at the
+    next one (round-robin), with the rest as failover candidates."""
     cand = []
     for n in list_profiles():
         s = worker_status(n)
@@ -499,12 +504,17 @@ def _rr_pick():
             if t:
                 cand.append((n, t))
     if not cand:
-        return None
+        return []
     global _rr_i
     with _rr_lock:
-        pick = cand[_rr_i % len(cand)]
+        start = _rr_i % len(cand)
         _rr_i += 1
-    return pick
+    return cand[start:] + cand[:start]
+
+def _rr_pick():
+    """Next healthy exit in round-robin order, or None."""
+    order = _rr_order()
+    return order[0] if order else None
 
 
 def _pump(src, dst):
@@ -526,15 +536,21 @@ def _pump(src, dst):
 
 def _handle_rr(cli):
     try:
-        pick = _rr_pick()
-        if not pick:
+        order = _rr_order()
+        if not order:
             cli.sendall(b"HTTP/1.1 503 Service Unavailable\r\n\r\nno healthy exit\n")
             return
-        _name, target = pick
-        try:
-            up = socket.create_connection(target, timeout=10)
-        except OSError:
-            cli.sendall(b"HTTP/1.1 502 Bad Gateway\r\n\r\nexit proxy unreachable\n")
+        up = None
+        for _name, target in order:               # try each healthy exit in turn
+            try:
+                up = socket.create_connection(target, timeout=8)
+                break
+            except OSError:
+                up = None
+        if up is None:
+            cli.sendall(b"HTTP/1.1 502 Bad Gateway\r\n\r\n"
+                        b"exit proxy unreachable (is the exit reconnected so "
+                        b"gluetun's HTTP proxy is enabled?)\n")
             return
         t = threading.Thread(target=_pump, args=(cli, up), daemon=True)
         t.start()
