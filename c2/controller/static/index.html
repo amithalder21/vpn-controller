@@ -586,6 +586,19 @@
             </div>
           </div>
         </section>
+        <section class="panel" id="proxyPanel">
+          <div class="sec-h"><h2>Proxy pool</h2><span class="sp"></span><span class="pill muted" id="proxyState"><span class="d"></span>…</span></div>
+          <div class="sec-b" style="font-size:13px;line-height:1.6">
+            <p class="muted" style="margin:0 0 10px">Route any tool (browser, curl, Burp, scanners) through your exits. Each healthy exit is an <b>HTTP proxy</b> on <span class="mono">127.0.0.1</span>; the round-robin endpoint rotates across exits per connection. Loopback-only — tunnel it over SSH for remote use.</p>
+            <div id="proxyRR" style="margin-bottom:12px"></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Exit</th><th>Proxy address</th><th>State</th><th style="text-align:right"></th></tr></thead>
+                <tbody id="proxyList"><tr><td colspan="4" class="empty">—</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
         <section class="panel">
           <div class="sec-h"><h2>About</h2></div>
           <div class="sec-b muted" style="font-size:13px;line-height:1.7">
@@ -717,6 +730,7 @@ function go(v) {
   if (v === 'overview') { renderOverviewLive(); loadMetrics(); }
   if (v === 'schedules') loadSchedules();
   if (v === 'run') loadJobHistory();
+  if (v === 'settings') loadProxy();
   closeMenu(); window.scrollTo(0, 0);
 }
 document.querySelectorAll('.nav-item').forEach(n => n.addEventListener('click', () => go(n.dataset.view)));
@@ -972,6 +986,16 @@ function renderDetail() {
     fact('Data used', st && st.rx_mb != null ? `${st.rx_mb} MB in  ·  ${st.tx_mb} MB out` : '—'),
     fact('Throughput', (() => { const r = rateNow[w.name]; return (running && r) ? `↓ ${fmtRate(r.down)}  ·  ↑ ${fmtRate(r.up)}` : el('span', { class: 'muted' }, running ? 'idle' : '—'); })()),
     fact('Server', el('span', { class: 'mono' }, `${p.remote || '?'}${p.proto ? ' · ' + p.proto.toUpperCase() : ''}`)),
+    fact('HTTP proxy', (() => {
+      const px = w.proxy;
+      if (!px) return el('span', { class: 'muted' }, 'disabled');
+      if (!px.active) return el('span', { class: 'muted' }, 'reconnect to enable');
+      const addr = `127.0.0.1:${px.port}`;
+      return el('span', { style: 'display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap' },
+        el('span', { class: 'mono' }, addr),
+        px.online ? '' : el('span', { class: 'muted', style: 'font-size:11px' }, '(offline)'),
+        el('button', { class: 'ghost sm', onclick: () => { navigator.clipboard?.writeText('http://' + addr); toast('Copied proxy address', 'ok', 1500); } }, 'Copy'));
+    })()),
     fact('ISP / ASN', ip.org ? el('span', { class: 'muted' }, ip.org) : '—'),
     fact('Restarts', String(w.restarts || 0)),
     fact('Tags', (w.tags && w.tags.length) ? el('span', { class: 'tags' }, ...w.tags.map(t => el('span', { class: 'tag-chip' }, '#' + t))) : el('span', { class: 'muted' }, 'none')),
@@ -1040,6 +1064,41 @@ async function loadSettings() {
     const ws = $('#webhookStatus');
     if (ws) { ws.className = 'pill ' + (s.webhook ? 'ok' : 'muted'); ws.replaceChildren(el('span', { class: 'd' }), s.webhook ? 'configured' : 'not set'); }
   } catch (e) {}
+}
+function _copyBtn(url, label) {
+  return el('button', { class: 'ghost sm', onclick: () => { navigator.clipboard?.writeText(url); toast('Copied ' + label, 'ok', 1500); } }, 'Copy');
+}
+async function loadProxy() {
+  const st = $('#proxyState'), rr = $('#proxyRR'), tb = $('#proxyList');
+  if (!st) return;
+  let p;
+  try { p = await api('GET', '/api/proxy'); } catch (e) { return; }
+  st.className = 'pill ' + (p.enabled ? 'ok' : 'muted');
+  st.replaceChildren(el('span', { class: 'd' }), p.enabled ? 'enabled' : 'disabled');
+  if (!p.enabled) {
+    rr.replaceChildren(el('span', { class: 'muted' }, 'Set PROXY_POOL=on on the controller to enable.'));
+    tb.replaceChildren(el('tr', {}, el('td', { colspan: 4, class: 'empty' }, 'Disabled.')));
+    return;
+  }
+  const rrAddr = `${p.host}:${p.rr_port}`;
+  rr.replaceChildren(
+    el('span', { class: 'muted' }, 'Round-robin endpoint: '),
+    el('span', { class: 'mono' }, rrAddr),
+    _copyBtn('http://' + rrAddr, 'round-robin proxy'),
+    el('div', { class: 'muted', style: 'font-size:12px;margin-top:5px' }, `e.g.  curl -x http://${rrAddr} https://ifconfig.co/json`));
+  const exits = p.exits || [];
+  if (!exits.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 4, class: 'empty' }, 'No exits yet.'))); return; }
+  tb.replaceChildren(...exits.map(x => {
+    const addr = `${p.host}:${x.port}`;
+    const state = x.online ? el('span', { class: 'statlbl ok' }, el('span', { class: 'sdot' }), 'online')
+      : x.active ? el('span', { class: 'pill muted' }, el('span', { class: 'd' }), 'offline')
+      : el('span', { class: 'muted' }, 'reconnect to enable');
+    return el('tr', {},
+      el('td', { class: 'cname' }, x.name),
+      el('td', { class: 'mono' }, x.active ? addr : '—'),
+      el('td', {}, state),
+      el('td', { style: 'text-align:right' }, x.active ? _copyBtn('http://' + addr, x.name) : ''));
+  }));
 }
 $('#autoheal').addEventListener('change', async e => {
   const on = e.target.checked;
@@ -1582,7 +1641,7 @@ $('#firstRunGo').onclick = () => go('connections');
 
 /* boot */
 go(token ? 'overview' : 'settings');
-refresh(); refreshScripts(); loadSettings();
+refresh(); refreshScripts(); loadSettings(); loadProxy();
 
 /* poll only while the tab is visible — no background churn, fresh on return */
 let pollTimer = setInterval(refresh, 5000);
