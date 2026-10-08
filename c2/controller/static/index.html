@@ -88,6 +88,33 @@
   .grid { stroke: var(--line2); stroke-width: 1; }
   .axlbl { fill: var(--muted); font-size: 10.5px; font-family: inherit; }
 
+  /* overview: two-up row (donut + bars) */
+  .ov-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 860px) { .ov-row { grid-template-columns: 1fr; } }
+  .ov-row .panel { margin-bottom: 0; }
+
+  /* donut + legend */
+  .donut { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+  .donut svg { flex: none; }
+  .legend { display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 150px; }
+  .lg-row { display: flex; align-items: center; gap: 9px; font-size: 13px; cursor: default; }
+  .lg-row .lg-d { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .lg-row .lg-l { color: var(--text); }
+  .lg-row .lg-v { margin-left: auto; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .lg-row .lg-p { color: var(--muted); font-size: 11.5px; width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* horizontal bars */
+  .hbars { display: flex; flex-direction: column; gap: 11px; }
+  .hbar { display: grid; grid-template-columns: 130px 1fr auto; align-items: center; gap: 10px; }
+  .hbar-l { font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hbar-track { height: 10px; border-radius: 6px; background: var(--panel2); overflow: hidden; }
+  .hbar-fill { display: block; height: 100%; border-radius: 6px; transition: width .4s cubic-bezier(.4,0,.2,1); min-width: 3px; }
+  .hbar-v { font-size: 12px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* KPI trend arrow */
+  .delta { display: inline-flex; align-items: center; gap: 2px; }
+  .delta svg { width: 12px; height: 12px; }
+
   /* stats */
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
   @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
@@ -281,6 +308,16 @@
       <!-- OVERVIEW -->
       <section id="view-overview" class="view active">
         <div class="kpis" id="kpis"></div>
+        <div class="ov-row">
+          <section class="panel">
+            <div class="sec-h"><h2>Fleet status</h2><span class="sp"></span><span class="count-chip" id="fleetTotal"></span></div>
+            <div class="sec-b"><div class="donut" id="statusDonut"><div class="empty">No connections yet.</div></div></div>
+          </section>
+          <section class="panel">
+            <div class="sec-h"><h2>Data by exit</h2><span class="muted" style="font-size:11.5px">top 8</span><span class="sp"></span><span class="count-chip" id="barTotal"></span></div>
+            <div class="sec-b"><div class="hbars" id="exitBars"><div class="empty">No traffic yet.</div></div></div>
+          </section>
+        </div>
         <section class="panel">
           <div class="sec-h"><h2>Data transferred</h2><span class="muted" style="font-size:11.5px">cumulative</span><span class="sp"></span><span class="count-chip" id="thrTotal"></span></div>
           <div class="sec-b"><div class="chartwrap" id="thrChart"><div class="empty">Collecting data…</div></div></div>
@@ -552,7 +589,7 @@ function go(v) {
   VIEWS.forEach(x => $('#view-' + x).classList.toggle('active', x === v));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === v));
   $('#viewTitle').textContent = TITLES[v];
-  if (v === 'overview') loadMetrics();
+  if (v === 'overview') { renderOverviewLive(); loadMetrics(); }
   closeMenu(); window.scrollTo(0, 0);
 }
 document.querySelectorAll('.nav-item').forEach(n => n.addEventListener('click', () => go(n.dataset.view)));
@@ -601,6 +638,7 @@ async function refresh() {
     renderStats(plist, workers);
     setConn('live', 'connected');
     refreshFeed();
+    renderOverviewLive();
     if ($('#view-overview').classList.contains('active')) loadMetrics();
   } catch (e) {
     if (e.status === 401) { setConn('err', 'bad / missing token'); $('#workers').replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'Add your control token in Settings to connect.'))); }
@@ -1045,10 +1083,13 @@ function axisChart(values, ts, { w, h = 230, color = 'var(--accent)', unit = '' 
     <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="3.2" style="fill:${color}"/>
     ${ylab}${xlab}</svg>`;
 }
+const _arrowUp = _svg('<path d="M7 17 17 7"/><path d="M8 7h9v9"/>');
+const _arrowDown = _svg('<path d="M7 7 17 17"/><path d="M17 8v9H8"/>');
+const _arrowFlat = _svg('<path d="M5 12h14"/><path d="M15 8l4 4-4 4"/>');
 function deltaBadge(n) {
-  if (n > 0) return el('span', { class: 'delta up' }, '+' + n);
-  if (n < 0) return el('span', { class: 'delta down' }, '-' + Math.abs(n));
-  return el('span', { class: 'delta flat' }, 'no change');
+  if (n > 0) return el('span', { class: 'delta up', html: _arrowUp + '+' + n });
+  if (n < 0) return el('span', { class: 'delta down', html: _arrowDown + '-' + Math.abs(n) });
+  return el('span', { class: 'delta flat', html: _arrowFlat + 'no change' });
 }
 function kpiCard(icon, label, value, sub, deltaN, series, color) {
   const ico = el('span', { class: 'kpi-ico', html: icon });
@@ -1060,6 +1101,82 @@ function kpiCard(icon, label, value, sub, deltaN, series, color) {
     el('div', { class: 'spark-wrap', html: chartSVG(series, { w: 150, h: 40, color }) }));
 }
 const fmtData = mb => mb >= 1024 ? (mb / 1024).toFixed(2) + ' GB' : (mb || 0).toFixed(1) + ' MB';
+
+/* donut ring for fleet status */
+function donutSVG(segments, { size = 164, thick = 22 } = {}) {
+  const total = segments.reduce((a, s) => a + s.value, 0);
+  const r = (size - thick) / 2, c = size / 2, circ = 2 * Math.PI * r;
+  if (!total) {
+    return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
+      <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="var(--line2)" stroke-width="${thick}"/>
+      <text x="${c}" y="${c - 1}" text-anchor="middle" style="font-size:24px;font-weight:700;fill:var(--muted)">0</text>
+      <text x="${c}" y="${c + 16}" text-anchor="middle" style="font-size:11px;fill:var(--muted)">connections</text></svg>`;
+  }
+  let off = 0;
+  const rings = segments.filter(s => s.value > 0).map(s => {
+    const len = s.value / total * circ;
+    const seg = `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${thick}"
+      stroke-dasharray="${len.toFixed(2)} ${(circ - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}"
+      transform="rotate(-90 ${c} ${c})"/>`;
+    off += len; return seg;
+  }).join('');
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
+    <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="var(--line2)" stroke-width="${thick}"/>
+    ${rings}
+    <text x="${c}" y="${c - 1}" text-anchor="middle" style="font-size:26px;font-weight:700;fill:var(--text);letter-spacing:-.02em">${total}</text>
+    <text x="${c}" y="${c + 16}" text-anchor="middle" style="font-size:11px;fill:var(--muted)">connections</text></svg>`;
+}
+
+/* classify a worker into one fleet-status bucket */
+function statusBucket(w) {
+  const running = w.exists && w.vpn === 'running';
+  if (w.gaveup || (running && w.health === 'unhealthy')) return 'attention';
+  if (running && w.health === 'healthy') return 'connected';
+  if (running) return 'connecting';
+  return 'offline';
+}
+
+/* live overview panels driven by lastWorkers */
+function renderOverviewLive() {
+  if (!$('#view-overview').classList.contains('active')) return;
+  const defs = [
+    { key: 'connected', label: 'Connected', color: 'var(--c-green)' },
+    { key: 'connecting', label: 'Connecting', color: 'var(--c-amber)' },
+    { key: 'attention', label: 'Needs attention', color: 'var(--bad)' },
+    { key: 'offline', label: 'Offline', color: 'var(--muted)' },
+  ];
+  const counts = { connected: 0, connecting: 0, attention: 0, offline: 0 };
+  lastWorkers.forEach(w => { counts[statusBucket(w)]++; });
+  const total = lastWorkers.length;
+  const segs = defs.map(d => ({ color: d.color, value: counts[d.key] }));
+  $('#fleetTotal').textContent = total ? `${counts.connected}/${total} connected` : '';
+  const legend = el('div', { class: 'legend' }, ...defs.map(d => {
+    const v = counts[d.key], pct = total ? Math.round(v / total * 100) : 0;
+    return el('div', { class: 'lg-row' },
+      el('span', { class: 'lg-d', style: 'background:' + d.color }),
+      el('span', { class: 'lg-l' }, d.label),
+      el('span', { class: 'lg-v' }, String(v)),
+      el('span', { class: 'lg-p' }, pct + '%'));
+  }));
+  $('#statusDonut').replaceChildren(el('div', { html: donutSVG(segs) }).firstElementChild || el('div'), legend);
+
+  // bars: top exits by data transferred (rx + tx)
+  const rows = lastWorkers
+    .map(w => ({ name: w.name, bucket: statusBucket(w), mb: (w.stats && w.stats.rx_mb != null) ? (w.stats.rx_mb + w.stats.tx_mb) : 0 }))
+    .filter(r => r.mb > 0).sort((a, b) => b.mb - a.mb).slice(0, 8);
+  const barBox = $('#exitBars');
+  if (!rows.length) { barBox.replaceChildren(el('div', { class: 'empty' }, 'No traffic yet.')); $('#barTotal').textContent = ''; }
+  else {
+    const max = Math.max(...rows.map(r => r.mb), 1);
+    const colorFor = b => b === 'connected' ? 'var(--c-green)' : b === 'attention' ? 'var(--bad)' : b === 'connecting' ? 'var(--c-amber)' : 'var(--muted)';
+    barBox.replaceChildren(...rows.map(r => el('div', { class: 'hbar' },
+      el('span', { class: 'hbar-l', title: r.name }, r.name),
+      el('span', { class: 'hbar-track' }, el('span', { class: 'hbar-fill', style: `width:${Math.max(3, r.mb / max * 100)}%;background:${colorFor(r.bucket)}` })),
+      el('span', { class: 'hbar-v' }, fmtData(r.mb)))));
+    $('#barTotal').textContent = fmtData(rows.reduce((a, r) => a + r.mb, 0)) + ' shown';
+  }
+}
+
 async function loadMetrics() {
   let m = [];
   try { m = await api('GET', '/api/metrics?limit=120'); } catch (e) { return; }
