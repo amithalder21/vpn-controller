@@ -100,7 +100,11 @@ then:
   filter by tag, and bulk-act on a selection.
 - **Run script** — script editor + library, target selection, live per-exit job
   output, cancel/stop.
-- **Activity** — a log of connects, auto-heals, give-ups, renames, leak tests.
+- **Schedules** — run a script (saved or inline) across the fleet on a cron
+  (presets or a custom 5-field expression), targeting all exits or one. See the
+  next run, last run + status, enable/pause per schedule, or run one on demand.
+- **Activity** — a log of connects, auto-heals, give-ups, renames, leak tests,
+  and scheduled runs.
 - **Settings** — control token, auto-heal toggle, webhook status, about.
 
 ## API
@@ -127,6 +131,9 @@ All `/api/*` calls require `X-Token: <CONTROL_TOKEN>` (SSE endpoints take it as
 | `GET  /api/metrics`                     | recent fleet metric points (for the charts)                     |
 | `GET  /api/events`                      | recent activity                                                 |
 | `GET/POST /api/settings`                | read / toggle auto-heal                                         |
+| `GET/POST /api/schedules`               | list / create cron schedules `{"name","cron","script"\|"body","targets","timeout"}` |
+| `POST/DELETE /api/schedules/<id>`       | update (enable, cron, target, source…) / delete a schedule      |
+| `POST /api/schedules/<id>/run`          | run a schedule now → job id (tail via `/api/jobs/<id>/stream`)   |
 
 ```bash
 TOK=$(grep -o '[0-9a-f]\{48\}' c2/.env)
@@ -178,8 +185,8 @@ keys are git-ignored. Not needed to use Flotilla.
 
 - **Rotating proxy pool** — expose each exit as an HTTP/SOCKS proxy plus one
   round-robin endpoint, for real per-request IP rotation across the fleet.
-- WireGuard support · bulk `.zip` import (auto-named by country) · scheduled
-  jobs with history · RBAC + audit · Prometheus metrics.
+- WireGuard support · bulk `.zip` import (auto-named by country) · job history
+  (past runs + output) · RBAC + audit · Prometheus metrics.
 
 ## Stack
 

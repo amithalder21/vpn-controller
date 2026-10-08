@@ -116,6 +116,134 @@ def alert(name, kind, detail=""):
         pass
 
 
+# ---------- scheduled jobs (cron) ----------
+
+def _parse_cron_field(expr, lo, hi, dow=False):
+    """Parse one cron field into a set of ints, or None for '*' (any)."""
+    expr = expr.strip()
+    if expr == "*":
+        return None
+    vals = set()
+    for part in expr.split(","):
+        rng, step = (part.split("/", 1) + ["1"])[:2] if "/" in part else (part, "1")
+        step = int(step)
+        if step < 1:
+            raise ValueError("step must be >= 1")
+        if rng == "*":
+            a, b = lo, hi
+        elif "-" in rng:
+            a, b = (int(x) for x in rng.split("-", 1))
+        else:
+            a = b = int(rng)
+        if a > b or a < lo or b > hi:
+            raise ValueError(f"value out of range {lo}-{hi}")
+        for v in range(a, b + 1, step):
+            vals.add(0 if (dow and v == 7) else v)
+    return vals
+
+
+def parse_cron(expr):
+    """Parse a 5-field cron expression (min hour dom mon dow) -> field sets."""
+    parts = (expr or "").split()
+    if len(parts) != 5:
+        raise ValueError("cron needs 5 fields: min hour dom mon dow")
+    return [
+        _parse_cron_field(parts[0], 0, 59),
+        _parse_cron_field(parts[1], 0, 23),
+        _parse_cron_field(parts[2], 1, 31),
+        _parse_cron_field(parts[3], 1, 12),
+        _parse_cron_field(parts[4], 0, 7, dow=True),
+    ]
+
+
+def cron_match(fields, tm):
+    """True if local-time struct tm satisfies the parsed cron fields."""
+    f_min, f_hour, f_dom, f_mon, f_dow = fields
+    ok = lambda s, v: s is None or v in s
+    cron_dow = (tm.tm_wday + 1) % 7  # py Mon=0..Sun=6  ->  cron Sun=0..Sat=6
+    if f_dom is None and f_dow is None:
+        day = True
+    elif f_dom is not None and f_dow is not None:   # cron: either matches
+        day = tm.tm_mday in f_dom or cron_dow in f_dow
+    elif f_dom is not None:
+        day = tm.tm_mday in f_dom
+    else:
+        day = cron_dow in f_dow
+    return (ok(f_min, tm.tm_min) and ok(f_hour, tm.tm_hour)
+            and ok(f_mon, tm.tm_mon) and day)
+
+
+def cron_next(expr, after_epoch):
+    """Next epoch (whole minute) strictly after after_epoch that matches, or None."""
+    try:
+        fields = parse_cron(expr)
+    except ValueError:
+        return None
+    t = (int(after_epoch) // 60 + 1) * 60
+    for _ in range(366 * 24 * 60):          # search up to ~1 year
+        if cron_match(fields, time.localtime(t)):
+            return t
+        t += 60
+    return None
+
+
+def schedules_all():
+    raw = _rtry(lambda: rdb.hgetall("mvpn:schedules")) or {}
+    out = []
+    for js in raw.values():
+        try:
+            out.append(json.loads(js))
+        except ValueError:
+            pass
+    out.sort(key=lambda s: s.get("created_at", 0))
+    return out
+
+
+def schedule_get(sid):
+    js = _rtry(lambda: rdb.hget("mvpn:schedules", sid))
+    try:
+        return json.loads(js) if js else None
+    except ValueError:
+        return None
+
+
+def schedule_put(s):
+    _rtry(lambda: rdb.hset("mvpn:schedules", s["id"], json.dumps(s)))
+
+
+def schedule_del(sid):
+    _rtry(lambda: rdb.hdel("mvpn:schedules", sid))
+
+
+def schedule_payload(s):
+    """Script bytes for a schedule: its saved script, or its inline body."""
+    if s.get("script"):
+        path, _ = script_path(s["script"])
+        with open(path, "rb") as fh:
+            return fh.read()
+    if s.get("body"):
+        return s["body"].encode()
+    return None
+
+
+def _fire_schedule(s, manual=False):
+    """Run a schedule now. Returns (job_id, names) or raises ValueError."""
+    raw = schedule_payload(s)
+    if raw is None:
+        raise ValueError("source missing (script deleted?)")
+    names = resolve_targets(s.get("targets"))
+    if not names:
+        raise ValueError("no running workers to target")
+    job_id = run_job(base64.b64encode(raw).decode(), names, int(s.get("timeout", 300)))
+    s["last_run"] = int(time.time())
+    s["last_job"] = job_id
+    s["last_status"] = f"ran on {len(names)}"
+    schedule_put(s)
+    tag = " (manual)" if manual else ""
+    record_event("-", "schedule", f'{s.get("name", "")}{tag} -> {len(names)} exit(s)')
+    return job_id, names
+
+
 # ---------- helpers ----------
 
 def clean_name(raw):
@@ -789,6 +917,120 @@ def api_set_settings():
     return api_get_settings()
 
 
+# ---- scheduled jobs ----
+
+def _validate_source(body, cur=None):
+    """Resolve script/body from a request into (script, body); raise 400s."""
+    script = (body.get("script") or "").strip()
+    text = body.get("body") or ""
+    if script:
+        path, _ = script_path(script)
+        if not os.path.isfile(path):
+            abort(400, "no such script")
+        return script, ""
+    if text.strip():
+        if len(text) > 100000:
+            abort(400, "script too long")
+        return "", text
+    if cur and (cur.get("script") or cur.get("body")):
+        return cur.get("script", ""), cur.get("body", "")
+    abort(400, "provide 'script' (a saved name) or 'body' (inline shell)")
+
+
+def _validate_targets(t):
+    if t in (None, "all"):
+        return "all"
+    if isinstance(t, list):
+        return [clean_name(x) for x in t if str(x).strip()]
+    abort(400, "targets must be 'all' or a list of names")
+
+
+def _schedule_public(s, now):
+    d = {k: v for k, v in s.items() if k != "last_bucket"}
+    d["next_run"] = cron_next(s.get("cron", ""), now) if s.get("enabled", True) else None
+    return d
+
+
+@app.get("/api/schedules")
+def api_schedules():
+    now = int(time.time())
+    return jsonify([_schedule_public(s, now) for s in schedules_all()])
+
+
+@app.post("/api/schedules")
+def api_schedule_create():
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()[:60]
+    if not name:
+        abort(400, "name required")
+    cron = (body.get("cron") or "").strip()
+    try:
+        parse_cron(cron)
+    except ValueError as e:
+        abort(400, f"bad cron: {e}")
+    script, text = _validate_source(body)
+    s = {
+        "id": uuid.uuid4().hex[:8], "name": name, "cron": cron,
+        "targets": _validate_targets(body.get("targets", "all")),
+        "script": script, "body": text,
+        "timeout": max(1, min(int(body.get("timeout", 300)), 3600)),
+        "enabled": bool(body.get("enabled", True)),
+        "created_at": int(time.time()),
+        "last_run": None, "last_job": None, "last_status": None, "last_bucket": None,
+    }
+    schedule_put(s)
+    record_event("-", "schedule-add", name)
+    return jsonify(_schedule_public(s, int(time.time())))
+
+
+@app.post("/api/schedules/<sid>")
+def api_schedule_update(sid):
+    s = schedule_get(sid)
+    if not s:
+        abort(404, "no such schedule")
+    body = request.get_json(silent=True) or {}
+    if "name" in body and (body["name"] or "").strip():
+        s["name"] = body["name"].strip()[:60]
+    if "cron" in body:
+        try:
+            parse_cron(body["cron"])
+        except ValueError as e:
+            abort(400, f"bad cron: {e}")
+        s["cron"] = body["cron"].strip()
+    if "enabled" in body:
+        s["enabled"] = bool(body["enabled"])
+    if "timeout" in body:
+        s["timeout"] = max(1, min(int(body["timeout"]), 3600))
+    if "targets" in body:
+        s["targets"] = _validate_targets(body["targets"])
+    if "script" in body or "body" in body:
+        s["script"], s["body"] = _validate_source(body, s)
+    schedule_put(s)
+    return jsonify(_schedule_public(s, int(time.time())))
+
+
+@app.delete("/api/schedules/<sid>")
+def api_schedule_delete(sid):
+    s = schedule_get(sid)
+    if not s:
+        abort(404, "no such schedule")
+    schedule_del(sid)
+    record_event("-", "schedule-del", s.get("name", sid))
+    return jsonify(deleted=sid)
+
+
+@app.post("/api/schedules/<sid>/run")
+def api_schedule_run_now(sid):
+    s = schedule_get(sid)
+    if not s:
+        abort(404, "no such schedule")
+    try:
+        job_id, names = _fire_schedule(s, manual=True)
+    except ValueError as e:
+        abort(400, str(e))
+    return jsonify(job=job_id, targets=names)
+
+
 @app.get("/api/metrics")
 def api_metrics():
     limit = min(int(request.args.get("limit", 120)), 2880)
@@ -990,6 +1232,30 @@ def _metrics_once():
     _rtry(lambda: rdb.xadd("mvpn:metrics", rec, maxlen=2880, approximate=True))
 
 
+def _schedules_once():
+    """Cron tick: fire any enabled schedule due this minute (once per minute)."""
+    now = int(time.time())
+    bucket = now // 60
+    tm = time.localtime(now)
+    for s in schedules_all():
+        if not s.get("enabled", True) or s.get("last_bucket") == bucket:
+            continue
+        try:
+            fields = parse_cron(s.get("cron", ""))
+        except ValueError:
+            continue
+        if not cron_match(fields, tm):
+            continue
+        s["last_bucket"] = bucket            # claim this minute before running
+        try:
+            _fire_schedule(s)
+        except ValueError as e:
+            s["last_run"] = now
+            s["last_status"] = f"skipped: {e}"
+            schedule_put(s)
+            record_event("-", "schedule-skip", f'{s.get("name", "")}: {e}')
+
+
 def _loop(fn, interval):
     while True:
         try:
@@ -1000,10 +1266,15 @@ def _loop(fn, interval):
 
 
 if __name__ == "__main__":
+    try:
+        time.tzset()          # honour TZ so cron fields are local time
+    except Exception:
+        pass
     os.makedirs(PROFILES_DIR, exist_ok=True)
     os.makedirs(SCRIPTS_DIR, exist_ok=True)
     threading.Thread(target=_loop, args=(_heal_once, HEAL_INTERVAL), daemon=True).start()
     threading.Thread(target=_loop, args=(_stats_once, 8), daemon=True).start()
     threading.Thread(target=_loop, args=(_ipcheck_once, 10), daemon=True).start()
     threading.Thread(target=_loop, args=(_metrics_once, 60), daemon=True).start()
+    threading.Thread(target=_loop, args=(_schedules_once, 20), daemon=True).start()
     app.run(host="0.0.0.0", port=8080, threaded=True)
