@@ -1,4 +1,6 @@
-# VPN Controller
+# Flotilla
+
+**One control plane for every exit.**
 
 Run **N OpenVPN connections at once** on one Docker host and drive them from a
 single control panel. Each VPN profile gets its own isolated worker; a command
