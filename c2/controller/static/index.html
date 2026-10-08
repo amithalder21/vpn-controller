@@ -587,14 +587,14 @@
           </div>
         </section>
         <section class="panel" id="proxyPanel">
-          <div class="sec-h"><h2>Proxy pool</h2><span class="sp"></span><span class="pill muted" id="proxyState"><span class="d"></span>…</span></div>
+          <div class="sec-h"><h2>Proxy pool</h2><span class="sp"></span><span class="count-chip" id="proxyCount" style="margin-right:10px"></span><span class="pill muted" id="proxyState"><span class="d"></span>…</span></div>
           <div class="sec-b" style="font-size:13px;line-height:1.6">
-            <p class="muted" style="margin:0 0 10px">Route any tool (browser, curl, Burp, scanners) through your exits. Each healthy exit is an <b>HTTP proxy</b> on <span class="mono">127.0.0.1</span>; the round-robin endpoint rotates across exits per connection. Loopback-only — tunnel it over SSH for remote use.</p>
+            <p class="muted" style="margin:0 0 10px">Route any tool (browser, curl, Burp, scanners) through your exits. Each healthy exit is an <b>HTTP proxy</b> on <span class="mono">127.0.0.1</span>; the round-robin endpoint rotates across the <b>enabled</b>, healthy exits per connection — use the Rotation toggle to curate the pool. Loopback-only — tunnel it over SSH for remote use.</p>
             <div id="proxyRR" style="margin-bottom:12px"></div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Exit</th><th>Proxy address</th><th>State</th><th style="text-align:right"></th></tr></thead>
-                <tbody id="proxyList"><tr><td colspan="4" class="empty">—</td></tr></tbody>
+                <thead><tr><th>Exit</th><th>Proxy address</th><th>State</th><th>Rotation</th><th style="text-align:right"></th></tr></thead>
+                <tbody id="proxyList"><tr><td colspan="5" class="empty">—</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -812,6 +812,7 @@ async function refresh() {
     refreshFeed();
     renderOverviewLive();
     if ($('#view-overview').classList.contains('active')) loadMetrics();
+    if ($('#view-settings').classList.contains('active')) loadProxy();
   } catch (e) {
     if (e.status === 401) { setConn('err', 'bad / missing token'); $('#workers').replaceChildren(el('tr', {}, el('td', { colspan: 6, class: 'empty' }, 'Add your control token in Settings to connect.'))); }
     else { setConn('err', 'offline'); }
@@ -1077,7 +1078,7 @@ async function loadProxy() {
   st.replaceChildren(el('span', { class: 'd' }), p.enabled ? 'enabled' : 'disabled');
   if (!p.enabled) {
     rr.replaceChildren(el('span', { class: 'muted' }, 'Set PROXY_POOL=on on the controller to enable.'));
-    tb.replaceChildren(el('tr', {}, el('td', { colspan: 4, class: 'empty' }, 'Disabled.')));
+    tb.replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'Disabled.')));
     return;
   }
   const rrAddr = `${p.host}:${p.rr_port}`;
@@ -1086,18 +1087,35 @@ async function loadProxy() {
     el('span', { class: 'mono' }, rrAddr),
     _copyBtn('http://' + rrAddr, 'round-robin proxy'),
     el('div', { class: 'muted', style: 'font-size:12px;margin-top:5px' }, `e.g.  curl -x http://${rrAddr} https://ifconfig.co/json`));
-  const exits = p.exits || [];
-  if (!exits.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 4, class: 'empty' }, 'No exits yet.'))); return; }
+  const exits = (p.exits || []).slice().sort((a, b) =>
+    (b.online - a.online) || (b.active - a.active) || a.name.localeCompare(b.name));
+  const nOn = exits.filter(x => x.online).length;
+  const cc = $('#proxyCount');
+  if (cc) cc.textContent = exits.length ? `${nOn} of ${exits.length} online` : '';
+  if (!exits.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, 'No exits yet.'))); return; }
   tb.replaceChildren(...exits.map(x => {
     const addr = `${p.host}:${x.port}`;
-    const state = x.online ? el('span', { class: 'statlbl ok' }, el('span', { class: 'sdot' }), 'online')
+    const inPool = x.pool !== false;
+    const state = !inPool ? el('span', { class: 'muted' }, 'excluded')
+      : x.online ? el('span', { class: 'statlbl ok' }, el('span', { class: 'sdot' }), 'online')
       : x.active ? el('span', { class: 'pill muted' }, el('span', { class: 'd' }), 'offline')
       : el('span', { class: 'muted' }, 'reconnect to enable');
-    return el('tr', {},
+    // In-rotation toggle: let the operator curate which exits the round-robin uses.
+    const cb = el('input', { type: 'checkbox' }); cb.checked = inPool;
+    cb.addEventListener('change', async () => {
+      try { await api('POST', '/api/proxy/' + x.name, { pool: cb.checked }); toast(`${x.name} ${cb.checked ? 'added to' : 'removed from'} rotation`, 'ok', 1400); }
+      catch (e) { toast(e.message, 'err'); cb.checked = !cb.checked; }
+      loadProxy();
+    });
+    const toggle = el('label', { class: 'switch', title: 'Include this exit in the round-robin pool' }, cb, el('span', { class: 'track' }));
+    // online exits (even if excluded from rotation) are directly usable → solid
+    // address + copy; offline/inactive are de-emphasised.
+    return el('tr', { style: x.online ? '' : 'opacity:.72' },
       el('td', { class: 'cname' }, x.name),
-      el('td', { class: 'mono' }, x.active ? addr : '—'),
+      el('td', { class: 'mono' + (x.online ? '' : ' muted') }, x.active ? addr : '—'),
       el('td', {}, state),
-      el('td', { style: 'text-align:right' }, x.active ? _copyBtn('http://' + addr, x.name) : ''));
+      el('td', {}, toggle),
+      el('td', { style: 'text-align:right' }, x.online ? _copyBtn('http://' + addr, x.name) : ''));
   }));
 }
 $('#autoheal').addEventListener('change', async e => {

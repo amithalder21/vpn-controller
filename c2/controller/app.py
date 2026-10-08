@@ -129,6 +129,18 @@ def proxy_port(name):
 def proxy_port_del(name):
     _rtry(lambda: rdb.hdel("mvpn:proxyports", name))
 
+
+def proxy_pool_enabled(name):
+    """Whether this exit participates in the round-robin pool (default yes)."""
+    return _rtry(lambda: rdb.hget("mvpn:proxyoff", name)) != "1"
+
+
+def proxy_pool_set(name, enabled):
+    if enabled:
+        _rtry(lambda: rdb.hdel("mvpn:proxyoff", name))
+    else:
+        _rtry(lambda: rdb.hset("mvpn:proxyoff", name, "1"))
+
 def record_event(name, kind, detail=""):
     _rtry(lambda: rdb.xadd("mvpn:events",
           {"ts": str(int(time.time())), "name": name, "kind": kind, "detail": detail},
@@ -374,6 +386,7 @@ def worker_status(name):
             "port": published if published else proxy_port(name),
             "active": bool(published),
             "online": bool(published and out.get("vpn") == "running" and out.get("health") == "healthy"),
+            "pool": proxy_pool_enabled(name),
         }
     return out
 
@@ -497,6 +510,7 @@ def remove_worker(name):
         if c:
             c.remove(force=True)
     desired_del(name); heal_reset(name); proxy_port_del(name)
+    _rtry(lambda: rdb.hdel("mvpn:proxyoff", name))
 
 
 # ---------- proxy pool: round-robin front ----------
@@ -525,7 +539,7 @@ def _rr_order():
     cand = []
     for n in list_profiles():
         s = worker_status(n)
-        if s.get("vpn") == "running" and s.get("health") == "healthy":
+        if s.get("vpn") == "running" and s.get("health") == "healthy" and proxy_pool_enabled(n):
             t = _exit_proxy_target(n)
             if t:
                 cand.append((n, t))
@@ -1196,10 +1210,20 @@ def api_proxy():
             s = worker_status(n)
             p = s.get("proxy") or {}
             exits.append({"name": n, "port": p.get("port"),
-                          "active": p.get("active", False), "online": p.get("online", False)})
+                          "active": p.get("active", False), "online": p.get("online", False),
+                          "pool": p.get("pool", True)})
     return jsonify(enabled=PROXY_POOL, rr_port=PROXY_RR_PORT,
                    port_base=PROXY_PORT_BASE, scheme="http", host="127.0.0.1",
                    exits=exits)
+
+
+@app.post("/api/proxy/<name>")
+def api_proxy_toggle(name):
+    """Include/exclude an exit from the round-robin pool. Body: {"pool": bool}."""
+    name = clean_name(name)
+    body = request.get_json(silent=True) or {}
+    proxy_pool_set(name, bool(body.get("pool", True)))
+    return jsonify(name=name, pool=proxy_pool_enabled(name))
 
 
 # ---- scheduled jobs ----
