@@ -614,10 +614,15 @@ function render() {
       el('span', { class: 'csub mono', style: 'margin-left:8px' }, ip.ip));
     else exitCell = el('td', {}, el('span', { class: 'muted' }, (running && w.health !== 'unhealthy') ? 'checking…' : '—'));
 
-    // STATUS — pill + uptime inline; data usage in tooltip
-    const up = running ? uptime(w.started_at) : '';
+    // STATUS — pill + context subline that matches the state (no "up" time on broken rows)
+    const connected = running && w.health === 'healthy';
+    let sub = '';
+    if (connected) sub = uptime(w.started_at);
+    else if (running && w.health === 'unhealthy') sub = 'not responding';
+    else if (running) sub = 'establishing tunnel…';
     const dataTip = st && (st.rx_mb != null) ? `Data: ↓ ${st.rx_mb} MB  ↑ ${st.tx_mb} MB` : '';
-    const statusCell = el('td', { title: dataTip }, statusPill(w), up ? el('span', { class: 'csub', style: 'margin-left:8px' }, up) : '');
+    const statusCell = el('td', { title: dataTip }, statusPill(w),
+      sub ? el('span', { class: 'csub' + (w.health === 'unhealthy' ? ' bad' : ''), style: 'margin-left:8px' }, sub) : '');
 
     // ACTIONS — compact power toggle + overflow menu
     const power = el('button', { class: 'pwr' + (running ? ' on' : ''), title: running ? 'Disconnect' : 'Connect', html: ICON.power,
