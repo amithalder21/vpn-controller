@@ -203,6 +203,14 @@
   .drawer-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--line2); }
   .drawer-h .sp { flex: 1; }
   .drawer pre { flex: 1; max-height: none; border-radius: 0; }
+  .detail-body { padding: 16px; overflow: auto; }
+  .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin-bottom: 18px; }
+  .fact .fl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .fact .fv { font-size: 13.5px; margin-top: 2px; }
+  .agroup { margin-top: 16px; }
+  .agroup .at { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+  .agroup .arow { display: flex; gap: 8px; flex-wrap: wrap; }
+  .arow button { flex: 0 0 auto; }
 
   /* toasts */
   #toasts { position: fixed; bottom: 18px; right: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 90; max-width: min(92vw, 440px); }
@@ -238,9 +246,7 @@
     <header class="topbar">
       <h1 id="viewTitle">Connections</h1>
       <span class="sp"></span>
-      <label class="switch" title="Automatically reconnect dropped or unhealthy connections">
-        <input type="checkbox" id="autoheal"><span class="track"></span><span>Auto-heal</span>
-      </label>
+      <span class="conn" id="connTop"><span class="dot wait"></span><span id="connTopText">connecting…</span></span>
     </header>
     <div class="view-wrap">
 
@@ -380,7 +386,7 @@
         </section>
         <section class="panel">
           <div class="sec-h"><h2>Auto-heal</h2><span class="sp"></span>
-            <label class="switch"><input type="checkbox" id="autoheal2"><span class="track"></span><span>Enabled</span></label>
+            <label class="switch"><input type="checkbox" id="autoheal"><span class="track"></span><span>Enabled</span></label>
           </div>
           <div class="sec-b muted" style="font-size:13px;line-height:1.6">
             When enabled, a background watchdog reconnects connections that are meant to be up but have
@@ -403,6 +409,16 @@
 
     </div>
   </div>
+</div>
+
+<!-- connection detail drawer -->
+<div id="detailBox" class="drawer" style="display:none">
+  <div class="drawer-h">
+    <b id="dName" class="mono"></b>
+    <span class="sp"></span>
+    <button id="dClose" class="ghost sm">Close</button>
+  </div>
+  <div id="dBody" class="detail-body"></div>
 </div>
 
 <!-- logs drawer -->
@@ -430,6 +446,7 @@ const _svg = p => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const ICON = {
   more: _svg('<circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/>'),
   power: _svg('<path d="M12 2v9"/><path d="M6.6 6.6a9 9 0 1 0 10.8 0"/>'),
+  chevron: _svg('<path d="M9 6l6 6-6 6"/>'),
 };
 
 function el(tag, attrs = {}, ...kids) {
@@ -457,7 +474,10 @@ function uptime(iso) {
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
   if (d) return `up ${d}d ${h}h`; if (h) return `up ${h}h ${m}m`; if (m) return `up ${m}m`; return 'up <1m';
 }
-function setConn(state, text) { $('#conn').firstElementChild.className = 'dot ' + state; $('#connText').textContent = text; }
+function setConn(state, text) {
+  $('#conn').firstElementChild.className = 'dot ' + state; $('#connText').textContent = text;
+  const ct = $('#connTop'); if (ct) { ct.firstElementChild.className = 'dot ' + state; $('#connTopText').textContent = text; }
+}
 async function api(method, path, body, isForm) {
   const opts = { method, headers: { 'X-Token': token } };
   if (body && isForm) opts.body = body;
@@ -488,6 +508,7 @@ document.addEventListener('scroll', closeMenu, true);
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (document.querySelector('.menu')) { closeMenu(); return; }
+  if ($('#detailBox').style.display !== 'none') { $('#dClose').click(); return; }
   if ($('#logsBox').style.display !== 'none') { $('#closeLogs').click(); }
 });
 
@@ -543,6 +564,7 @@ async function refresh() {
     profiles = Object.fromEntries(plist.map(p => [p.name, p]));
     lastWorkers = workers;
     render();
+    renderDetail();
     renderStats(plist, workers);
     setConn('live', 'connected');
     refreshFeed();
@@ -598,7 +620,7 @@ function render() {
     box.addEventListener('change', () => { box.checked ? selected.add(w.name) : selected.delete(w.name); updateSelCount(); syncSelAll(); });
 
     // NAME — name + tags; server endpoint moved to a hover tooltip
-    const tagEls = (w.tags || []).map(t => el('span', { class: 'tag-chip', title: 'filter by #' + t, onclick: () => { $('#tagFilter').value = t; filterTag = t; render(); } }, '#' + t));
+    const tagEls = (w.tags || []).map(t => el('span', { class: 'tag-chip', title: 'filter by #' + t, onclick: e => { e.stopPropagation(); $('#tagFilter').value = t; filterTag = t; render(); } }, '#' + t));
     const serverTip = `${p.remote || ''}${p.proto ? ' · ' + p.proto.toUpperCase() : ''}`.trim();
     const rotateChip = w.rotate_min ? el('span', { class: 'tag-chip', style: 'background:var(--panel2);color:var(--muted)', title: `Auto-rotates exit IP every ${w.rotate_min}m` }, `⟳ ${w.rotate_min}m`) : '';
     const nameCell = el('td', { title: serverTip },
@@ -626,28 +648,16 @@ function render() {
     const statusCell = el('td', { title: dataTip }, statusPill(w),
       sub ? el('span', { class: 'csub' + (w.health === 'unhealthy' ? ' bad' : ''), style: 'margin-left:8px' }, sub) : '');
 
-    // ACTIONS — compact power toggle + overflow menu
+    // ACTIONS — quick power toggle; click the row (or ›) opens the full detail panel
     const power = el('button', { class: 'pwr' + (running ? ' on' : ''), title: running ? 'Disconnect' : 'Connect', html: ICON.power,
-      onclick: run(() => api('POST', `/api/workers/${w.name}/${running ? 'stop' : 'start'}`)) });
-    const kebab = el('button', { class: 'kebab', title: 'More', html: ICON.more, onclick: e => {
-      e.stopPropagation();
-      openMenu(e.currentTarget, [
-        { label: 'Reconnect', fn: run(() => api('POST', `/api/workers/${w.name}/restart`)) },
-        { label: 'Rotate exit IP', fn: () => { api('POST', `/api/workers/${w.name}/rotate`).then(() => toast(`${w.name}: rotating exit IP…`, 'ok')).catch(e => toast(e.message, 'err')); } },
-        { label: 'Check exit IP', fn: run(() => api('POST', `/api/workers/${w.name}/ip`)) },
-        { label: 'Test exit (leak check)', fn: () => leakTest(w.name) },
-        { label: 'Live logs', fn: () => streamLogs(w.name) },
-        { sep: true },
-        { label: w.rotate_min ? `Auto-rotate: every ${w.rotate_min}m` : 'Auto-rotate…', fn: () => setRotate(w) },
-        { label: 'Edit tags…', fn: () => editTags(w) },
-        { label: 'Rename…', fn: () => renameConn(w.name) },
-        { sep: true },
-        { label: 'Delete connection', danger: true, fn: () => confirm(`Delete connection “${w.name}”?\nThis removes its profile and containers.`) && run(() => api('DELETE', `/api/profiles/${w.name}`))() },
-      ]);
-    } });
-    const actionsCell = el('td', { style: 'text-align:right' }, el('div', { class: 'actions-group' }, power, kebab));
+      onclick: e => { e.stopPropagation(); run(() => api('POST', `/api/workers/${w.name}/${running ? 'stop' : 'start'}`))(); } });
+    const chev = el('button', { class: 'kebab', title: 'Details & actions', html: ICON.chevron, onclick: e => { e.stopPropagation(); openDetail(w.name); } });
+    const actionsCell = el('td', { style: 'text-align:right' }, el('div', { class: 'actions-group' }, power, chev));
 
-    return el('tr', {}, el('td', {}, box), nameCell, exitCell, statusCell, actionsCell);
+    box.addEventListener('click', e => e.stopPropagation());
+    const tr = el('tr', { style: 'cursor:pointer' }, el('td', {}, box), nameCell, exitCell, statusCell, actionsCell);
+    tr.addEventListener('click', () => openDetail(w.name));
+    return tr;
   }));
   updateSelCount(); syncSelAll();
 }
@@ -681,6 +691,56 @@ async function setRotate(w) {
   try { await api('POST', `/api/workers/${w.name}/rotate-schedule`, { minutes }); toast(minutes ? `Auto-rotate every ${minutes}m` : 'Auto-rotate off', 'ok'); } catch (e) { toast(e.message, 'err'); }
   refresh();
 }
+
+/* ---------- connection detail drawer ---------- */
+let currentDetail = null;
+function openDetail(name) {
+  currentDetail = name;
+  if (logSrc) { logSrc.close(); } $('#logsBox').style.display = 'none';
+  $('#detailBox').style.display = 'flex';
+  renderDetail();
+}
+function renderDetail() {
+  if ($('#detailBox').style.display === 'none') return;
+  const w = lastWorkers.find(x => x.name === currentDetail);
+  if (!w) { $('#detailBox').style.display = 'none'; return; }
+  const p = profiles[w.name] || {}, ip = w.ipinfo || {}, st = w.stats;
+  const running = w.exists && w.vpn === 'running';
+  $('#dName').textContent = w.name;
+  const fact = (l, v) => el('div', { class: 'fact' }, el('div', { class: 'fl' }, l), el('div', { class: 'fv' }, v));
+  const facts = el('div', { class: 'facts' },
+    el('div', { class: 'fact', style: 'grid-column:1/-1' }, el('div', { class: 'fl' }, 'Status'), el('div', { class: 'fv' }, statusPill(w), w.gaveup ? el('span', { class: 'attn', style: 'margin-left:8px' }, 'needs attention') : '')),
+    fact('Exit IP', ip.ip ? el('span', { class: 'mono' }, ip.ip) : el('span', { class: ip.error ? 'bad' : 'muted' }, ip.error ? 'no response' : '—')),
+    fact('Location', ip.ip ? el('span', {}, flag(ip.country_iso) ? el('span', { class: 'flag' }, flag(ip.country_iso)) : '', [ip.city, ip.country].filter(Boolean).join(', ') || '—') : el('span', { class: 'muted' }, '—')),
+    fact('Uptime', running && w.health === 'healthy' ? uptime(w.started_at) : el('span', { class: 'muted' }, running ? 'not connected' : 'offline')),
+    fact('Data used', st && st.rx_mb != null ? `↓ ${st.rx_mb} MB · ↑ ${st.tx_mb} MB` : '—'),
+    fact('Server', el('span', { class: 'mono' }, `${p.remote || '?'}${p.proto ? ' · ' + p.proto.toUpperCase() : ''}`)),
+    fact('ISP / ASN', ip.org ? el('span', { class: 'muted' }, ip.org) : '—'),
+    fact('Auto-rotate', w.rotate_min ? `every ${w.rotate_min} min` : 'off'),
+    fact('Restarts', String(w.restarts || 0)),
+    fact('Tags', (w.tags && w.tags.length) ? el('span', { class: 'tags' }, ...w.tags.map(t => el('span', { class: 'tag-chip' }, '#' + t))) : el('span', { class: 'muted' }, 'none')),
+  );
+  const run = (fn) => async () => { try { await fn(); } catch (e) { toast(w.name + ': ' + e.message, 'err'); } refresh(); };
+  const btn = (label, fn, cls = 'sm') => el('button', { class: cls, onclick: fn }, label);
+  const groups = el('div', {},
+    el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Connection'), el('div', { class: 'arow' },
+      running ? btn('Disconnect', run(() => api('POST', `/api/workers/${w.name}/stop`)))
+              : btn('Connect', run(() => api('POST', `/api/workers/${w.name}/start`)), 'primary sm'),
+      btn('Reconnect', run(() => api('POST', `/api/workers/${w.name}/restart`))),
+      btn('Live logs', () => streamLogs(w.name)))),
+    el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Exit IP'), el('div', { class: 'arow' },
+      btn('Rotate exit IP', () => { api('POST', `/api/workers/${w.name}/rotate`).then(() => toast(`${w.name}: rotating…`, 'ok')).catch(e => toast(e.message, 'err')); }),
+      btn('Check exit IP', run(() => api('POST', `/api/workers/${w.name}/ip`))),
+      btn('Test exit (leak)', () => leakTest(w.name)),
+      btn(w.rotate_min ? `Auto-rotate: ${w.rotate_min}m` : 'Auto-rotate…', () => setRotate(w)))),
+    el('div', { class: 'agroup' }, el('div', { class: 'at' }, 'Configuration'), el('div', { class: 'arow' },
+      btn('Edit tags…', () => editTags(w)),
+      btn('Rename…', () => renameConn(w.name)),
+      btn('Delete connection', () => confirm(`Delete connection “${w.name}”?\nThis removes its profile and containers.`) && run(() => api('DELETE', `/api/profiles/${w.name}`))(), 'danger sm'))),
+  );
+  $('#dBody').replaceChildren(facts, groups);
+}
+$('#dClose').onclick = () => { $('#detailBox').style.display = 'none'; currentDetail = null; };
 function syncSelAll() {
   const names = Object.keys(profiles);
   $('#selAll').checked = names.length > 0 && names.every(n => selected.has(n));
@@ -722,17 +782,16 @@ async function refreshFeed() {
 async function loadSettings() {
   try {
     const s = await api('GET', '/api/settings');
-    $('#autoheal').checked = s.autoheal; $('#autoheal2').checked = s.autoheal;
+    $('#autoheal').checked = s.autoheal;
     const ws = $('#webhookStatus');
     if (ws) { ws.className = 'pill ' + (s.webhook ? 'ok' : 'muted'); ws.replaceChildren(el('span', { class: 'd' }), s.webhook ? 'configured' : 'not set'); }
   } catch (e) {}
 }
-async function setAutoheal(on, src) {
-  try { await api('POST', '/api/settings', { autoheal: on }); $('#autoheal').checked = on; $('#autoheal2').checked = on; toast('Auto-heal ' + (on ? 'on' : 'off'), 'ok', 1500); }
-  catch (err) { toast(err.message, 'err'); if (src) src.checked = !on; }
-}
-$('#autoheal').addEventListener('change', e => setAutoheal(e.target.checked, e.target));
-$('#autoheal2').addEventListener('change', e => setAutoheal(e.target.checked, e.target));
+$('#autoheal').addEventListener('change', async e => {
+  const on = e.target.checked;
+  try { await api('POST', '/api/settings', { autoheal: on }); toast('Auto-heal ' + (on ? 'on' : 'off'), 'ok', 1500); }
+  catch (err) { toast(err.message, 'err'); e.target.checked = !on; }
+});
 
 /* bulk */
 async function doBulk(action, useSelection, btn) {
@@ -862,6 +921,7 @@ $('#jobClose').onclick = () => { if (jobSrc) jobSrc.close(); $('#jobBox').style.
 let logSrc = null, logLines = [];
 function streamLogs(name) {
   if (logSrc) logSrc.close();
+  $('#detailBox').style.display = 'none'; currentDetail = null;
   $('#logsName').textContent = name; $('#logs').textContent = ''; logLines = [];
   $('#logsBox').style.display = 'flex'; $('#logsState').textContent = 'connecting…';
   const src = new EventSource(`/api/workers/${name}/logs/stream?tail=200&token=${encodeURIComponent(token)}`);
