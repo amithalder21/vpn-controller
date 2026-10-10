@@ -247,6 +247,10 @@
   tr.probe-out td { background: color-mix(in srgb, var(--warn, #c77d12) 9%, transparent); }
   tr.probe-out td:first-child { box-shadow: inset 3px 0 0 var(--warn, #c77d12); }
   tr.probe-err td { color: var(--muted); }
+  tr.probe-row { cursor: pointer; }
+  tr.probe-row:hover td { background: color-mix(in srgb, var(--accent, #2f6feb) 7%, transparent); }
+  .pv-pre { white-space: pre-wrap; word-break: break-word; font-family: var(--mono, ui-monospace, monospace); font-size: 12px; line-height: 1.5; background: var(--panel-2, rgba(127,127,127,.06)); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0; max-height: 46vh; overflow: auto; }
+  .pv-body { max-height: 52vh; }
   .dz-ico { width: 17px; height: 17px; flex: none; opacity: .75; }
   .kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 5px; color: var(--muted); background: var(--panel2); }
   .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -545,9 +549,18 @@
                 </div>
               </div>
             </details>
-            <label class="muted" style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;margin-top:10px;cursor:pointer">
-              <input type="checkbox" id="probeBaseline"> Include a direct (no-VPN) baseline row for comparison
-            </label>
+            <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-top:12px">
+              <label class="muted" style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer">
+                <input type="checkbox" id="probeBaseline"> Direct (no-VPN) baseline row
+              </label>
+              <label class="muted" style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer">
+                <input type="checkbox" id="probeFollow" checked> Follow redirects
+              </label>
+              <label class="muted" style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px">
+                Timeout <input type="number" id="probeTimeout" value="20" min="1" max="60" style="width:62px"> s
+              </label>
+            </div>
+            <p class="muted" style="font-size:11.5px;margin:10px 0 0">Click any result row to inspect that exit's full response — status line, headers, and body.</p>
           </div>
         </section>
         <section class="panel">
@@ -688,6 +701,16 @@
   <pre id="logs"></pre>
 </div>
 
+<div id="probeView" class="drawer" style="display:none">
+  <div class="drawer-h">
+    <b>Response</b><span class="pill muted" id="pvName"></span>
+    <span class="sp"></span>
+    <span id="pvMeta" class="count-chip"></span>
+    <button id="pvClose" class="ghost sm">Close</button>
+  </div>
+  <div id="pvBody" style="overflow:auto;padding:14px 16px"></div>
+</div>
+
 <div id="toasts"></div>
 
 <script>
@@ -766,6 +789,7 @@ document.addEventListener('scroll', closeMenu, true);
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (document.querySelector('.menu')) { closeMenu(); return; }
+  if ($('#probeView').style.display !== 'none') { $('#pvClose').click(); return; }
   if ($('#detailBox').style.display !== 'none') { $('#dClose').click(); return; }
   if ($('#logsBox').style.display !== 'none') { $('#closeLogs').click(); }
 });
@@ -1249,19 +1273,22 @@ function probeCountry(r) {
   const cc = r.country_iso ? el('span', { class: 'ccode' }, r.country_iso.toUpperCase()) : '';
   return el('span', {}, cc, cc ? ' ' : '', r.country || '');
 }
+let lastProbe = null;
 function renderProbe(data) {
   const tb = $('#probeRows');
   const all = [...data.rows]; if (data.direct) all.push(data.direct);
   if (!all.length) { tb.replaceChildren(el('tr', {}, el('td', { colspan: 9, class: 'empty' }, 'No exits responded.'))); return; }
   const rows = all.map(r => {
+    const open = () => openProbeView(r);
+    const cls = (r.error ? 'probe-err' : (r.diff === 'outlier' ? 'probe-out' : '')) + ' probe-row';
     if (r.error) {
-      return el('tr', { class: 'probe-err' },
+      return el('tr', { class: cls, onclick: open, title: 'Inspect' },
         el('td', { class: 'mono' }, r.exit), el('td', {}, probeCountry(r)),
         el('td', { colspan: 5, class: 'muted' }, r.error),
         el('td', { style: 'text-align:right' }, r.ms ? r.ms + 'ms' : ''),
         el('td', {}, probeBadge('error')));
     }
-    return el('tr', { class: r.diff === 'outlier' ? 'probe-out' : '' },
+    return el('tr', { class: cls, onclick: open, title: 'Inspect response' },
       el('td', { class: 'mono' }, r.exit),
       el('td', {}, probeCountry(r)),
       el('td', {}, String(r.status)),
@@ -1274,6 +1301,25 @@ function renderProbe(data) {
   });
   tb.replaceChildren(...rows);
 }
+function openProbeView(r) {
+  const req = (lastProbe && lastProbe.req) || {};
+  $('#pvName').textContent = r.exit + (r.country_iso ? ' · ' + r.country_iso.toUpperCase() : '');
+  $('#pvMeta').textContent = r.error ? 'no response' : `${r.status} · ${r.size} B · ${r.ms}ms`;
+  const section = (title, node) => el('div', { style: 'margin-bottom:14px' },
+    el('div', { class: 'muted', style: 'font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px' }, title), node);
+  const kids = [section('Request', el('pre', { class: 'pv-pre' }, `${req.method || 'GET'} ${req.url || ''}`))];
+  if (r.error) {
+    kids.push(section('Result', el('pre', { class: 'pv-pre' }, r.error)));
+  } else {
+    if (r.final_url && r.final_url !== req.url) kids.push(section('Final URL (after redirects)', el('pre', { class: 'pv-pre' }, r.final_url)));
+    const hdrs = (r.resp_headers || []).map(([k, v]) => `${k}: ${v}`).join('\n');
+    kids.push(section('Response headers', el('pre', { class: 'pv-pre' }, `HTTP ${r.status}\n` + hdrs)));
+    kids.push(section('Response body' + (r.truncated ? ' (truncated)' : ''), el('pre', { class: 'pv-pre pv-body' }, r.preview || '(empty)')));
+  }
+  $('#pvBody').replaceChildren(...kids);
+  $('#probeView').style.display = 'flex';
+}
+$('#pvClose').onclick = () => { $('#probeView').style.display = 'none'; };
 async function runProbe() {
   const url = $('#probeUrl').value.trim();
   if (!url) { toast('Enter a URL to probe', 'err'); return; }
@@ -1284,7 +1330,10 @@ async function runProbe() {
     const data = await api('POST', '/api/probe', {
       url, method: $('#probeMethod').value, headers: parseProbeHeaders(),
       body: $('#probeBody').value, baseline: $('#probeBaseline').checked,
+      follow: $('#probeFollow').checked, timeout: Math.max(1, Math.min(60, +$('#probeTimeout').value || 20)),
     });
+    data.req = { method: $('#probeMethod').value, url };
+    lastProbe = data;
     renderProbe(data);
     const outliers = data.rows.filter(r => r.diff === 'outlier').length;
     const errs = data.rows.filter(r => r.diff === 'error').length;

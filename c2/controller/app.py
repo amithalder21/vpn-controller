@@ -1129,27 +1129,59 @@ def api_exec():
 
 
 # ---------- fan-out probe: the same HTTP request from every exit, diffed ----------
-PROBE_MAX_BODY = 2 * 1024 * 1024  # read at most 2 MiB of each response (for hashing)
+PROBE_MAX_BODY = 2 * 1024 * 1024    # read at most 2 MiB of each response (for hashing)
+PROBE_PREVIEW = 32 * 1024           # keep this much of a textual body for inspection
 PROBE_METHODS = {"GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"}
+_TEXTUAL = ("text/", "application/json", "application/xml", "application/xhtml",
+            "application/javascript", "application/x-www-form-urlencoded",
+            "+json", "+xml", "application/rss", "application/atom")
+
+
+def _is_textual(ctype):
+    c = (ctype or "").lower()
+    return any(t in c for t in _TEXTUAL) or c == ""
 
 
 def _probe_result(status, final_url, data, t0, hdrs):
+    ctype = (hdrs.get("Content-Type", "") or "").split(";")[0].strip()
+    # response headers, order preserved, lightly capped so one row can't bloat
+    rh = []
+    for k, v in list(hdrs.items())[:50]:
+        rh.append([str(k), str(v)[:1024]])
+    if _is_textual(ctype):
+        preview = data[:PROBE_PREVIEW].decode("utf-8", "replace")
+        truncated = len(data) > PROBE_PREVIEW
+    else:
+        preview = f"[binary response — {len(data)} bytes, not shown]"
+        truncated = False
     return {
         "status": status,
         "final_url": final_url,
         "size": len(data),
         "hash": hashlib.sha256(data).hexdigest()[:12],
         "server": hdrs.get("Server", ""),
-        "ctype": (hdrs.get("Content-Type", "") or "").split(";")[0].strip(),
+        "ctype": ctype,
         "ms": int((time.time() - t0) * 1000),
+        "resp_headers": rh,
+        "preview": preview,
+        "truncated": truncated,
     }
 
 
-def _probe_one(url, method, headers, body, timeout, proxy=None):
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Return the 3xx as-is instead of following it (so the probe can show the
+    Location and status, like a Requester with 'follow redirects' off)."""
+    def redirect_request(self, *a, **k):
+        return None
+
+
+def _probe_one(url, method, headers, body, timeout, proxy=None, follow=True):
     """One request, optionally through an exit's HTTP proxy. HTTP error responses
     (403/451/...) are recorded as results, not errors — that's the signal we want."""
     handlers = [urllib.request.ProxyHandler({"http": proxy, "https": proxy})] if proxy \
         else [urllib.request.ProxyHandler({})]  # {} = ignore any ambient proxy env
+    if not follow:
+        handlers.append(_NoRedirect())
     opener = urllib.request.build_opener(*handlers)
     data_bytes = body.encode("utf-8") if body else None
     req = urllib.request.Request(url, method=method, data=data_bytes)
@@ -1205,6 +1237,7 @@ def api_probe():
     reqbody = body.get("body") or ""
     timeout = max(1, min(int(body.get("timeout", 20)), 60))
     want_direct = bool(body.get("baseline"))
+    follow = body.get("follow", True) is not False
 
     targets = []  # (name, proxy_url) for exits with a reachable proxy right now
     for n in list_profiles():
@@ -1217,7 +1250,7 @@ def api_probe():
 
     def run_exit(item):
         n, proxy = item
-        r = _probe_one(url, method, headers, reqbody, timeout, proxy=proxy)
+        r = _probe_one(url, method, headers, reqbody, timeout, proxy=proxy, follow=follow)
         info = ip_cache.get(n) or {}
         r.update(exit=n, country=info.get("country"),
                  country_iso=info.get("country_iso"), ip=info.get("ip"))
@@ -1255,7 +1288,7 @@ def api_probe():
             direct = {"exit": "direct (no VPN)",
                       "error": "skipped: target resolves to a private/loopback address"}
         else:
-            direct = _probe_one(url, method, headers, reqbody, timeout, proxy=None)
+            direct = _probe_one(url, method, headers, reqbody, timeout, proxy=None, follow=follow)
             direct["exit"] = "direct (no VPN)"
             if "error" not in direct:
                 direct["diff"] = classify(direct)
