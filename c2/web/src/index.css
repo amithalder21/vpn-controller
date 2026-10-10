@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 20% 99%;
+    --foreground: 222 25% 6%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 25% 6%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 25% 6%;
+    --primary: 222 22% 9%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 221 83% 53%;
+    --accent-foreground: 0 0% 100%;
+    --muted: 220 18% 96%;
+    --muted-foreground: 218 9% 42%;
+    --border: 214 16% 91%;
+    --input: 214 16% 88%;
+    --ring: 221 83% 53%;
+    --radius: 0.8rem;
+
+    --rail: 222 26% 8%;
+    --rail-foreground: 210 22% 96%;
+    --rail-muted: 217 11% 56%;
+    --rail-hover: 220 18% 15%;
+    --rail-active: 221 78% 62%;
+
+    --ok: 146 82% 25%;  --ok-bg: 146 52% 93%;
+    --warn: 30 95% 33%; --warn-bg: 40 86% 91%;
+    --bad: 4 68% 45%;   --bad-bg: 6 80% 96%;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: 222 26% 5%;
+      --foreground: 220 14% 92%;
+      --card: 222 18% 9%;
+      --card-foreground: 220 14% 92%;
+      --popover: 222 18% 11%;
+      --popover-foreground: 220 14% 92%;
+      --primary: 220 14% 93%;
+      --primary-foreground: 222 24% 7%;
+      --accent: 221 90% 68%;
+      --accent-foreground: 222 24% 7%;
+      --muted: 220 16% 15%;
+      --muted-foreground: 218 11% 60%;
+      --border: 220 14% 17%;
+      --input: 220 14% 22%;
+      --ring: 221 90% 68%;
+
+      --rail: 222 34% 4%;
+      --rail-foreground: 210 18% 93%;
+      --rail-muted: 217 11% 52%;
+      --rail-hover: 220 20% 12%;
+      --rail-active: 221 90% 70%;
+
+      --ok: 146 58% 46%;  --ok-bg: 150 42% 11%;
+      --warn: 38 82% 56%; --warn-bg: 36 52% 11%;
+      --bad: 4 76% 63%;   --bad-bg: 6 46% 12%;
+    }
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    letter-spacing: -0.006em;
+    margin: 0;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  /* quiet, theme-aware scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
+  }
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.28);
+    border-radius: 99px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.46); background-clip: padding-box; }
+}
+
+@layer utilities {
+  .bg-grid {
+    background-image: radial-gradient(hsl(var(--foreground) / 0.045) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+}
