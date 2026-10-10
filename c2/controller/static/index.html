@@ -457,19 +457,6 @@
               <span>Drop <b>.ovpn</b> profiles here, or click to choose</span>
               <input type="file" id="files" accept=".ovpn,.conf" multiple hidden>
             </div>
-            <div style="margin-top:12px">
-              <div class="toolbar">
-                <input type="text" id="ovpnUrl" placeholder="Import from URL — a direct .ovpn link or a .zip/.tar of configs" style="flex:1;min-width:260px">
-                <button id="ovpnUrlBtn" class="sm">Import</button>
-                <button id="ipspeedBtn" class="ghost sm" title="Best-effort pull from ipspeed.info; often blocked by its human-check">Fetch from ipspeed.info</button>
-              </div>
-              <details style="margin-top:10px">
-                <summary class="muted" style="font-size:12.5px;cursor:pointer">Or paste a raw config</summary>
-                <textarea id="ovpnRaw" spellcheck="false" placeholder="client&#10;dev tun&#10;proto udp&#10;remote vpn.example.com 1194&#10;..." style="width:100%;margin-top:8px;min-height:120px"></textarea>
-                <div style="margin-top:8px"><button id="ovpnRawBtn" class="sm">Import pasted config</button></div>
-              </details>
-              <p class="muted" style="font-size:12px;margin:10px 0 0">Free public configs come and go and may be slow or rate-limited. If a provider needs a shared username/password, the connection will fail with an auth error — tell me and I'll add credential support.</p>
-            </div>
           </div>
         </section>
       </section>
@@ -1206,32 +1193,6 @@ async function uploadFiles(path, files, label) {
 }
 wireDrop('#ovpnDrop', '#files', async files => { await uploadFiles('/api/profiles', files, 'profile'); refresh(); });
 wireDrop('#shDrop', '#shfiles', async files => { await uploadFiles('/api/scripts', files, 'script'); refreshScripts(); });
-
-/* import from URL / paste / ipspeed */
-async function importProfiles(btn, path, body, busyLabel) {
-  const old = btn.textContent; btn.disabled = true; btn.textContent = busyLabel;
-  try {
-    const r = await api('POST', path, body);
-    toast(`Imported: ${r.saved.join(', ')}`, 'ok');
-    return r;
-  } catch (e) { toast(e.message, 'err'); }
-  finally { btn.disabled = false; btn.textContent = old; await refresh(); }
-}
-$('#ovpnUrlBtn').addEventListener('click', async () => {
-  const url = $('#ovpnUrl').value.trim();
-  if (!url) { toast('Paste a URL first', 'err'); return; }
-  const r = await importProfiles($('#ovpnUrlBtn'), '/api/profiles/fetch', { url }, 'Importing…');
-  if (r && r.saved.length) $('#ovpnUrl').value = '';
-});
-$('#ovpnUrl').addEventListener('keydown', e => { if (e.key === 'Enter') $('#ovpnUrlBtn').click(); });
-$('#ovpnRawBtn').addEventListener('click', async () => {
-  const raw = $('#ovpnRaw').value.trim();
-  if (!raw) { toast('Paste a config first', 'err'); return; }
-  const r = await importProfiles($('#ovpnRawBtn'), '/api/profiles/fetch', { raw }, 'Importing…');
-  if (r && r.saved.length) $('#ovpnRaw').value = '';
-});
-$('#ipspeedBtn').addEventListener('click', () =>
-  importProfiles($('#ipspeedBtn'), '/api/profiles/ipspeed', {}, 'Fetching…'));
 
 /* scripts */
 let SCRIPTS = [];

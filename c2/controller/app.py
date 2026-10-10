@@ -8,20 +8,14 @@ Talks to the Docker engine through the mounted socket.
 """
 import base64
 import hmac
-import io
 import json
 import os
 import re
 import shutil
 import socket
-import tarfile
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid
-import zipfile
 from concurrent.futures import ThreadPoolExecutor
 
 import docker
@@ -934,7 +928,6 @@ def require_token():
 @app.errorhandler(400)
 @app.errorhandler(401)
 @app.errorhandler(404)
-@app.errorhandler(502)
 def http_error(e):
     return jsonify(error=e.description), e.code
 
@@ -972,144 +965,22 @@ def funky_name():
     return "exit-" + uuid.uuid4().hex[:6]
 
 
-def _looks_like_ovpn(data: bytes) -> bool:
-    return b"remote " in data
-
-
-def _save_ovpn(data: bytes, label: str = "profile") -> str:
-    """Validate bytes as an OpenVPN profile and store it under a funky name."""
-    if not _looks_like_ovpn(data):
-        abort(400, f"{label}: does not look like an OpenVPN profile (no 'remote' line)")
-    name = funky_name()  # memorable name; country/IP are shown separately
-    with open(profile_path(name), "wb") as out:
-        out.write(data)
-    os.chmod(profile_path(name), 0o644)  # gluetun reads it as a non-root user
-    return name
-
-
-# Browser-ish UA; some free-config hosts 403 the default urllib agent.
-_FETCH_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-             "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
-_FETCH_MAX = 8 * 1024 * 1024  # 8 MiB cap per download
-
-
-def _http_get(url: str, timeout: int = 20) -> tuple[bytes, str]:
-    """Fetch a URL server-side. Returns (body, content_type). Raises ValueError on failure."""
-    parts = urllib.parse.urlparse(url)
-    if parts.scheme not in ("http", "https") or not parts.netloc:
-        raise ValueError("URL must be http(s) and absolute")
-    req = urllib.request.Request(url, headers={"User-Agent": _FETCH_UA, "Accept": "*/*"})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            ctype = resp.headers.get("Content-Type", "")
-            return resp.read(_FETCH_MAX + 1)[:_FETCH_MAX], ctype
-    except urllib.error.HTTPError as e:
-        raise ValueError(f"{url}: HTTP {e.code} {e.reason}")
-    except (urllib.error.URLError, socket.timeout, OSError) as e:
-        raise ValueError(f"{url}: {getattr(e, 'reason', e)}")
-
-
-def _extract_ovpns(data: bytes) -> list[bytes]:
-    """Pull every .ovpn out of a zip/tar archive; [] if it isn't an archive."""
-    out = []
-    try:
-        if zipfile.is_zipfile(io.BytesIO(data)):
-            with zipfile.ZipFile(io.BytesIO(data)) as z:
-                for n in z.namelist():
-                    if n.lower().endswith(".ovpn"):
-                        out.append(z.read(n))
-            return out
-    except zipfile.BadZipFile:
-        pass
-    try:
-        with tarfile.open(fileobj=io.BytesIO(data)) as t:
-            for m in t.getmembers():
-                if m.isfile() and m.name.lower().endswith(".ovpn"):
-                    f = t.extractfile(m)
-                    if f:
-                        out.append(f.read())
-    except (tarfile.TarError, OSError):
-        pass
-    return out
-
-
 @app.post("/api/profiles")
 def api_upload_profiles():
     files = request.files.getlist("files")
     if not files:
         abort(400, "send one or more files in the 'files' field")
-    saved = [_save_ovpn(f.read(), f.filename or "profile") for f in files]
+    saved = []
+    for f in files:
+        data = f.read()
+        if b"remote " not in data:
+            abort(400, f"{f.filename}: does not look like an OpenVPN profile (no 'remote' line)")
+        name = funky_name()  # memorable name; country/IP are shown separately
+        with open(profile_path(name), "wb") as out:
+            out.write(data)
+        os.chmod(profile_path(name), 0o644)  # gluetun reads it as a non-root user
+        saved.append(name)
     return jsonify(saved=saved)
-
-
-@app.post("/api/profiles/fetch")
-def api_fetch_profile():
-    """Import profiles from a URL (.ovpn or .zip/.tar archive) or pasted raw config."""
-    body = request.get_json(silent=True) or {}
-    raw = (body.get("raw") or "").strip()
-    url = (body.get("url") or "").strip()
-    if raw:
-        return jsonify(saved=[_save_ovpn(raw.encode("utf-8"), "pasted config")])
-    if not url:
-        abort(400, "provide 'url' or 'raw'")
-    try:
-        data, _ = _http_get(url)
-    except ValueError as e:
-        abort(502, str(e))
-    archived = _extract_ovpns(data)
-    if archived:
-        saved = [_save_ovpn(d, f"{url} entry") for d in archived if _looks_like_ovpn(d)]
-        if not saved:
-            abort(400, "archive contained no usable .ovpn profiles")
-        return jsonify(saved=saved)
-    return jsonify(saved=[_save_ovpn(data, url)])
-
-
-# ipspeed.info free-OpenVPN listing. Best-effort: the page is often behind a
-# Cloudflare human-check that will 403 this server-side fetch, in which case we
-# say so and the user falls back to the URL/paste import above.
-IPSPEED_URL = "https://ipspeed.info/free-openvpn.php"
-
-
-@app.post("/api/profiles/ipspeed")
-def api_fetch_ipspeed():
-    try:
-        page, _ = _http_get(IPSPEED_URL)
-    except ValueError as e:
-        abort(502, f"could not reach ipspeed.info ({e}). Grab the .ovpn link in your "
-                   f"browser and use Import from URL / paste instead.")
-    text = page.decode("utf-8", "replace")
-    blocked = ("Just a moment" in text or "security verification" in text
-               or "cf-challenge" in text or "challenge-platform" in text)
-    if blocked:
-        abort(502, "ipspeed.info is behind a Cloudflare human-check right now. Open it in "
-                   "your browser, copy a server's .ovpn link, and use Import from URL / paste.")
-    # Collect candidate config links: anchors ending in .ovpn or hitting a
-    # download endpoint. Resolve relative hrefs against the page URL.
-    hrefs = re.findall(r'href=["\']([^"\']+)["\']', text, flags=re.I)
-    cands, seen = [], set()
-    for h in hrefs:
-        low = h.lower()
-        if low.endswith(".ovpn") or "ovpn" in low and ("download" in low or "data" in low or "config" in low):
-            full = urllib.parse.urljoin(IPSPEED_URL, h)
-            if full not in seen:
-                seen.add(full)
-                cands.append(full)
-    if not cands:
-        abort(502, "no .ovpn links found on the page (its layout may have changed). Use "
-                   "Import from URL / paste with a direct link from your browser.")
-    saved, errors = [], []
-    for c in cands[:40]:
-        try:
-            data, _ = _http_get(c)
-            for d in (_extract_ovpns(data) or [data]):
-                if _looks_like_ovpn(d):
-                    saved.append(_save_ovpn(d, c))
-        except ValueError as e:
-            errors.append(str(e))
-    if not saved:
-        abort(502, "found links but none yielded a usable profile. " + ("; ".join(errors[:3])))
-    return jsonify(saved=saved, found=len(cands), errors=errors[:5])
 
 
 @app.delete("/api/profiles/<name>")
