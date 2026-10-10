@@ -8,6 +8,7 @@ Talks to the Docker engine through the mounted socket.
 """
 import base64
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -391,7 +392,59 @@ def worker_status(name):
     return out
 
 
+def _is_ip(host):
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def resolve_remotes(data: bytes):
+    """gluetun's custom-config mode rejects hostname `remote` lines (it wants an
+    IP). VPNGate/opengw.net and similar free configs use hostnames, so resolve
+    each hostname remote to an IP and rewrite the line. Unresolvable hosts are
+    left as-is (gluetun will then surface its own error). Returns (bytes, notes).
+    """
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data, []
+    notes, out = [], []
+    for line in text.splitlines(keepends=True):
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "remote" and not _is_ip(parts[1]):
+            host = parts[1]
+            try:
+                ip = socket.gethostbyname(host)
+                nl = "\n" if line.endswith("\n") else ""
+                out.append(" ".join(["remote", ip, *parts[2:]]) + nl)
+                notes.append(f"{host} -> {ip}")
+                continue
+            except (socket.gaierror, OSError):
+                notes.append(f"{host} (unresolved)")
+        out.append(line)
+    return "".join(out).encode("utf-8"), notes
+
+
+def ensure_profile_ip_remotes(name):
+    """Rewrite a saved profile's hostname remotes to IPs in place (idempotent)."""
+    p = profile_path(name)
+    try:
+        with open(p, "rb") as f:
+            data = f.read()
+    except FileNotFoundError:
+        return
+    new, notes = resolve_remotes(data)
+    if new != data:
+        with open(p, "wb") as f:
+            f.write(new)
+        os.chmod(p, 0o644)
+        print(f"[profile] {name}: rewrote hostname remote(s) to IP ({', '.join(notes)})", flush=True)
+
+
 def create_worker(name):
+    ensure_profile_ip_remotes(name)  # gluetun custom-config needs IP remotes
     ensure_image(VPN_IMAGE)
     ensure_image(APP_IMAGE)
     labels = {"mvpn.profile": name}
@@ -975,6 +1028,7 @@ def api_upload_profiles():
         data = f.read()
         if b"remote " not in data:
             abort(400, f"{f.filename}: does not look like an OpenVPN profile (no 'remote' line)")
+        data, _ = resolve_remotes(data)  # gluetun custom-config needs IP remotes
         name = funky_name()  # memorable name; country/IP are shown separately
         with open(profile_path(name), "wb") as out:
             out.write(data)
