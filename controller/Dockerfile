@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Build context is c2/ (see compose.yaml) so this stage can reach web/.
+# Build context is the repo root (see compose.yaml) so this stage can reach web/.
 
 # ---- stage 1: build the React UI ----
 FROM node:20-alpine AS web

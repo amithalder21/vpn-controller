@@ -150,7 +150,7 @@ vantage points at once — reliably, and from one place.**
   pause, or run on demand.
 - **Job history** — browse recent runs and re-open their output.
 - **Built-in QA/perf scripts** — `geo-check`, `latency`, `throughput`, and
-  `uptime-probe` ship by default. See [`c2/controller/examples/`](c2/controller/examples/).
+  `uptime-probe` ship by default. See [`controller/examples/`](controller/examples/).
 
 ### Trust & safety
 - **Leak test** confirms traffic really leaves through the tunnel (exit IP ≠ host IP).
@@ -216,14 +216,14 @@ throwaway OpenVPN servers so you can see the isolation end-to-end.
 
 ### Developing the UI
 
-The dashboard is a React + Vite + TypeScript app in [`c2/web/`](c2/web). For live
+The dashboard is a React + Vite + TypeScript app in [`web/`](web). For live
 UI work, run the Vite dev server (it proxies `/api` to the controller):
 
 ```bash
-cd c2/web && npm install && npm run dev   # http://localhost:5173
+cd web && npm install && npm run dev   # http://localhost:5173
 ```
 
-See [`c2/web/README.md`](c2/web/README.md) for the frontend layout and build.
+See [`web/README.md`](web/README.md) for the frontend layout and build.
 
 ---
 
@@ -296,7 +296,7 @@ All `/api/*` calls require `X-Token: <CONTROL_TOKEN>` (SSE endpoints take it as
 | `POST /api/schedules/<id>/run`          | run a schedule now → job id (tail via `/api/jobs/<id>/stream`)   |
 
 ```bash
-TOK=$(grep -o '[0-9a-f]\{48\}' c2/.env)
+TOK=$(grep -o '[0-9a-f]\{48\}' .env)
 
 # run a command on every connected exit and see which country each is in
 curl -s -X POST -H "X-Token: $TOK" -H 'Content-Type: application/json' \
@@ -313,7 +313,7 @@ curl -s -X POST -H "X-Token: $TOK" -H 'Content-Type: application/json' \
 
 ## Configuration
 
-The controller is configured by environment variables (set in `c2/.env` or the
+The controller is configured by environment variables (set in `.env` or the
 compose Environment tab):
 
 | Variable             | Default | Purpose                                              |
@@ -354,7 +354,7 @@ scripts you submit, so treat it as privileged infrastructure:
 ### Deploying on a server (Dokploy)
 
 Use a **Docker Compose** service (not a Swarm "Application" — Swarm blocks the
-`NET_ADMIN` / `/dev/net/tun` the tunnels need). Paste `c2/compose.yaml`, set
+`NET_ADMIN` / `/dev/net/tun` the tunnels need). Paste `compose.yaml`, set
 `CONTROL_TOKEN` in the Environment tab, deploy, and reach the panel over SSH.
 Do not attach a public domain to it.
 

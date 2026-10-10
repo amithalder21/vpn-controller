@@ -1,6 +1,5 @@
 # Secrets — never commit
 .env
-c2/.env
 
 # VPN profiles contain private keys
 *.ovpn
@@ -17,5 +16,5 @@ pki/
 __pycache__/
 *.pyc
 
-# built UI (compiled from c2/web by Docker or `npm run build`)
-c2/controller/static/
+# built UI (compiled from web/ by Docker or `npm run build`)
+controller/static/

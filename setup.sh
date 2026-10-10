@@ -4,7 +4,7 @@
 # Safe to re-run: it reuses an existing token and existing data volumes.
 set -euo pipefail
 
-cd "$(dirname "$0")/c2"
+cd "$(dirname "$0")"
 
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 ok()   { printf '\033[32m✓\033[0m %s\n' "$1"; }
@@ -37,7 +37,7 @@ else
   # preserve any other .env lines, replace/append CONTROL_TOKEN
   if [ -f .env ]; then grep -v '^CONTROL_TOKEN=' .env > .env.tmp || true; mv .env.tmp .env; fi
   echo "CONTROL_TOKEN=$TOKEN" >> .env
-  ok "Generated a new control token and wrote it to c2/.env"
+  ok "Generated a new control token and wrote it to .env"
 fi
 
 # ---- 3. build + launch ----

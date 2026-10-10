@@ -15,7 +15,7 @@ single-file vanilla UI.
 ## Develop
 
 ```bash
-cd c2/web
+cd web
 npm install
 npm run dev     # http://localhost:5173, /api proxied to the controller on :8088
 ```
