@@ -13,6 +13,7 @@ tunnel healthy — from a single dashboard.
 ![React](https://img.shields.io/badge/UI-React%20%2B%20Vite%20%2B%20TS-61DAFB?logo=react&logoColor=white)
 ![Self-hosted](https://img.shields.io/badge/self--hosted-yes-0a7d41)
 ![API](https://img.shields.io/badge/API-token--auth%20JSON-5b8cff)
+![License](https://img.shields.io/badge/license-AGPL--3.0-0a7d41)
 
 [Features](#features) ·
 [Use cases](#use-cases) ·
@@ -386,6 +387,21 @@ keys are git-ignored. Not needed to use Flotilla.
 a Debian worker image.
 **UI:** React · Vite · TypeScript · Tailwind CSS · Radix (shadcn-style) ·
 TanStack Query · Recharts.
+
+---
+
+## License
+
+Flotilla is free and open-source software licensed under the
+**GNU Affero General Public License v3.0** — see [`LICENSE`](LICENSE).
+
+Copyright © 2026 Amit Halder. The AGPL means you can run, study, modify, and
+share Flotilla freely; if you run a **modified** version as a network service,
+you must make your source available to its users under the same license.
+
+> **Note on responsible use:** the AGPL grants software freedom, not a licence to
+> misuse. Flotilla is intended for testing, monitoring, and research on systems
+> you own or are authorized to assess — see [Use cases](#use-cases).
 
 <div align="center">
 
