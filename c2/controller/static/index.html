@@ -1240,7 +1240,7 @@ function parseProbeHeaders() {
   return out;
 }
 function probeBadge(d) {
-  const map = { same: ['ok', 'match'], outlier: ['warn', 'differs'], error: ['muted', 'unreachable'] };
+  const map = { same: ['ok', 'match'], outlier: ['warn', 'differs'], unique: ['muted', 'unique'], error: ['muted', 'unreachable'] };
   const [cls, label] = map[d] || ['muted', d || ''];
   return el('span', { class: 'pill ' + cls }, el('span', { class: 'd' }), label);
 }
@@ -1288,7 +1288,11 @@ async function runProbe() {
     renderProbe(data);
     const outliers = data.rows.filter(r => r.diff === 'outlier').length;
     const errs = data.rows.filter(r => r.diff === 'error').length;
-    $('#probeSummary').textContent = `${data.count} exit${data.count === 1 ? '' : 's'} · ${outliers} differ · ${errs} unreachable`;
+    const reached = data.count - errs;
+    let mid = data.all_unique && reached > 1
+      ? 'all responses unique (nothing to diff — use a content URL, not an IP echo)'
+      : `${outliers} differ`;
+    $('#probeSummary').textContent = `${data.count} exit${data.count === 1 ? '' : 's'} · ${mid} · ${errs} unreachable`;
   } catch (e) {
     toast(e.message, 'err');
     $('#probeRows').replaceChildren(el('tr', {}, el('td', { colspan: 9, class: 'empty' }, e.message)));

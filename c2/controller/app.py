@@ -1231,14 +1231,23 @@ def api_probe():
         except Exception as e:
             rows.append({"exit": n, "error": str(e)[:160]})
 
-    # majority (status, body-hash) among successful exits → flag the outliers
+    # Compare successful exits by (status, body-hash). A single occurrence isn't a
+    # majority: if every response is unique (e.g. an IP-echo endpoint) there is
+    # nothing to diff against, so mark them "unique" rather than inventing an
+    # arbitrary "match" + "differs".
     sigs = [(r.get("status"), r.get("hash")) for r in rows if "error" not in r]
-    majority = Counter(sigs).most_common(1)[0][0] if sigs else None
-    for r in rows:
+    top, topn = Counter(sigs).most_common(1)[0] if sigs else (None, 0)
+    majority = top if topn > 1 else None
+
+    def classify(r):
         if "error" in r:
-            r["diff"] = "error"
-        else:
-            r["diff"] = "same" if (r.get("status"), r.get("hash")) == majority else "outlier"
+            return "error"
+        if majority is None:
+            return "unique"
+        return "same" if (r.get("status"), r.get("hash")) == majority else "outlier"
+
+    for r in rows:
+        r["diff"] = classify(r)
 
     direct = None
     if want_direct:
@@ -1248,12 +1257,14 @@ def api_probe():
         else:
             direct = _probe_one(url, method, headers, reqbody, timeout, proxy=None)
             direct["exit"] = "direct (no VPN)"
-            if "error" not in direct and majority:
-                direct["diff"] = "same" if (direct.get("status"), direct.get("hash")) == majority else "outlier"
+            if "error" not in direct:
+                direct["diff"] = classify(direct)
 
     rows.sort(key=lambda r: (r.get("country") or "~~", r.get("exit") or ""))
     maj = {"status": majority[0], "hash": majority[1]} if majority else None
-    return jsonify(url=url, method=method, count=len(rows), majority=maj, rows=rows, direct=direct)
+    return jsonify(url=url, method=method, count=len(rows),
+                   majority=maj, all_unique=(bool(sigs) and majority is None),
+                   rows=rows, direct=direct)
 
 
 # ---- scripts ----
