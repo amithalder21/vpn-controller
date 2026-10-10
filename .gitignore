@@ -16,3 +16,6 @@ pki/
 # Python
 __pycache__/
 *.pyc
+
+# built UI (compiled from c2/web by Docker or `npm run build`)
+c2/controller/static/

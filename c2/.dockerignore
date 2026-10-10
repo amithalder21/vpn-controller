@@ -1,0 +1,10 @@
+# keep the controller build context small; the web UI is built inside the image
+web/node_modules
+web/dist
+web/.vite
+**/__pycache__
+**/*.pyc
+.git
+.env
+*.log
+.DS_Store

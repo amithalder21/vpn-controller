@@ -26,7 +26,9 @@ services:
     # no ports published; only the controller talks to it over the mvpn network
 
   controller:
-    build: ./controller
+    build:
+      context: .
+      dockerfile: controller/Dockerfile
     restart: unless-stopped
     depends_on: [dragonfly]
     ports:
@@ -46,8 +48,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - profiles:/profiles
       - scripts:/scripts
-      # dev convenience: edit the UI and reload the browser, no rebuild needed
-      - ./controller/static:/app/static:ro
+      # The UI is built into the image (see controller/Dockerfile). For UI dev,
+      # run `cd web && npm run dev` (Vite dev server proxies /api to :8088).
     networks: [mvpn]
 
 volumes:

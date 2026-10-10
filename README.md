@@ -154,25 +154,48 @@ picture.
 
 ## 🏁 Quickstart
 
-Flotilla runs anywhere Docker does.
+The only prerequisite is **Docker** (Docker Desktop or OrbStack). One command
+builds everything — controller, React UI, and DragonflyDB — generates a control
+token, and brings the stack up:
 
 ```bash
-cd c2
-cp .env.example .env
-# set a strong control token (macOS shown; on Linux drop the '')
-sed -i '' "s/change-me/$(openssl rand -hex 24)/" .env
-docker compose -p mvpn up -d --build
+./setup.sh
 ```
 
-Open **http://127.0.0.1:8088**, go to **Settings**, paste the token from `.env`, then:
+It prints the URL and your token when it's ready. Open **http://127.0.0.1:8088**,
+paste the token when prompted, then:
 
 1. **Connections → drop your `.ovpn` files** (one exit per file).
 2. **Connect all** — a worker per profile comes up; exit IPs auto-populate.
-3. **Run script** → type a command, **Run on all connected**, and watch each exit
+3. **Run script** → type a command, **Run across the fleet**, and watch each exit
    stream its output live.
+
+Re-running `./setup.sh` is safe: it reuses your token and keeps your data volumes.
+Stop with `docker compose -p mvpn down` (volumes are kept).
+
+<details>
+<summary>Manual setup (without the script)</summary>
+
+```bash
+cd c2
+echo "CONTROL_TOKEN=$(openssl rand -hex 24)" > .env
+docker compose -p mvpn up -d --build
+```
+
+The UI is compiled inside the image, so no local Node is needed.
+</details>
 
 No real VPN provider handy? [`test-lab/`](#-test-lab--self-contained-demo) spins up
 throwaway OpenVPN servers so you can see the isolation end-to-end.
+
+### Developing the UI
+
+The dashboard is a React + Vite + TypeScript app in [`c2/web/`](c2/web). For
+live UI work, run the Vite dev server (it proxies `/api` to the controller):
+
+```bash
+cd c2/web && npm install && npm run dev   # http://localhost:5173
+```
 
 ---
 
