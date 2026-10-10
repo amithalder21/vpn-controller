@@ -168,8 +168,8 @@ export function Settings() {
             probe targets from every region, and stream output live.
           </div>
           <div className="pt-1">
-            <a href="https://github.com/amithalder21/vpn-controller" target="_blank" rel="noopener" className="text-accent hover:underline">
-              github.com/amithalder21/vpn-controller
+            <a href="https://github.com/amithalder21/flotilla" target="_blank" rel="noopener" className="text-accent hover:underline">
+              github.com/amithalder21/flotilla
             </a>
           </div>
         </CardBody>

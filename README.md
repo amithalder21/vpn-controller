@@ -392,6 +392,6 @@ TanStack Query · Recharts.
 ---
 
 If Flotilla is useful to you, **star the repo** and
-[open an issue](https://github.com/amithalder21/vpn-controller/issues) with ideas or bugs.
+[open an issue](https://github.com/amithalder21/flotilla/issues) with ideas or bugs.
 
 </div>
