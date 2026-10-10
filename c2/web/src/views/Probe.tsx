@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Radar } from "lucide-react";
+import { Radar, Terminal } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast, useWorkers } from "@/lib/hooks";
+import { looksLikeCurl, parseCurl, type CurlParsed } from "@/lib/curl";
 import type { ProbeResult, ProbeRow } from "@/lib/types";
 import { Card, CardBody, CardHeader, CardSub, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,9 @@ export function Probe() {
   const [result, setResult] = useState<ProbeResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<ProbeRow | null>(null);
+  const [advOpen, setAdvOpen] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState("");
 
   const online = workers.filter((w) => w.exists && w.vpn === "running" && w.health === "healthy").length;
 
@@ -37,6 +41,30 @@ export function Probe() {
       if (k) out[k] = l.slice(i + 1).trim();
     });
     return out;
+  }
+
+  function applyCurl(p: CurlParsed): boolean {
+    setMethod(METHODS.includes(p.method) ? p.method : "GET");
+    setUrl(p.url);
+    const hdrLines = Object.entries(p.headers).map(([k, v]) => `${k}: ${v}`);
+    setHeaders(hdrLines.join("\n"));
+    setBody(p.body);
+    setFollow(p.follow);
+    if (hdrLines.length || p.body) setAdvOpen(true);
+    const bits = [`${p.method} request`];
+    if (hdrLines.length) bits.push(`${hdrLines.length} header${hdrLines.length > 1 ? "s" : ""}`);
+    if (p.body) bits.push("body");
+    toast(`Imported from curl — ${bits.join(", ")}`, "ok");
+    return true;
+  }
+
+  function importCurl(text: string): boolean {
+    const p = parseCurl(text);
+    if (!p) {
+      toast("Could not parse that as a curl command", "err");
+      return false;
+    }
+    return applyCurl(p);
   }
 
   async function run() {
@@ -96,7 +124,14 @@ export function Probe() {
             <Input
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://target.example.com/path"
+              onPaste={(e) => {
+                const text = e.clipboardData.getData("text");
+                if (looksLikeCurl(text)) {
+                  e.preventDefault();
+                  importCurl(text);
+                }
+              }}
+              placeholder="https://target.example.com/path  (or paste a curl command)"
               className="min-w-[260px] flex-1"
               onKeyDown={(e) => e.key === "Enter" && run()}
             />
@@ -104,7 +139,47 @@ export function Probe() {
               <Radar /> {busy ? "Running…" : "Run across fleet"}
             </Button>
           </div>
-          <details>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowImport((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Terminal className="size-3.5" /> Import from curl
+            </button>
+            <span className="text-[11.5px] text-muted-foreground">
+              Paste a <span className="font-mono">curl</span> command — method, URL, headers and body fill in automatically.
+            </span>
+          </div>
+          {showImport && (
+            <div className="rounded-lg border border-border bg-muted/40 p-3">
+              <Textarea
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                onPaste={(e) => {
+                  const text = e.clipboardData.getData("text");
+                  if (looksLikeCurl(text)) {
+                    e.preventDefault();
+                    setImportText(text);
+                    if (importCurl(text)) setShowImport(false);
+                  }
+                }}
+                placeholder={"curl 'https://example.com/api' \\\n  -X POST \\\n  -H 'Content-Type: application/json' \\\n  --data-raw '{\"q\":1}'"}
+                className="min-h-[120px] text-[12px]"
+              />
+              <div className="mt-2 flex items-center gap-2">
+                <Button size="sm" variant="primary" onClick={() => { if (importCurl(importText)) setShowImport(false); }}>
+                  Fill fields
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setImportText(""); setShowImport(false); }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <details open={advOpen} onToggle={(e) => setAdvOpen((e.target as HTMLDetailsElement).open)}>
             <summary className="cursor-pointer text-[12.5px] text-muted-foreground">Headers &amp; body (optional)</summary>
             <div className="mt-2 flex flex-wrap gap-3">
               <div className="min-w-[240px] flex-1">
