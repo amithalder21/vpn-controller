@@ -7,6 +7,7 @@ Manages N workers, one per OpenVPN profile. A worker is two containers:
 Talks to the Docker engine through the mounted socket.
 """
 import base64
+import hashlib
 import hmac
 import ipaddress
 import json
@@ -16,7 +17,11 @@ import shutil
 import socket
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 import docker
@@ -557,6 +562,18 @@ def restart_worker(name):
     _bounce(name)
 
 
+def shutdown_worker(name):
+    """Fully stop AND remove this exit's containers, but keep the profile and its
+    proxy/pool settings. Unlike stop (Disconnect), it leaves no lingering Exited
+    containers and frees the published port; unlike remove (Delete), the exit
+    stays in the fleet and a later Connect recreates it. Idempotent."""
+    desired_set(name, "down"); heal_reset(name); record_event(name, "shutdown")
+    for role in ("app", "vpn"):
+        c = get(name, role)
+        if c:
+            c.remove(force=True)
+
+
 def remove_worker(name):
     for role in ("app", "vpn"):
         c = get(name, role)
@@ -1056,7 +1073,8 @@ def api_workers():
 @app.post("/api/workers/<name>/<action>")
 def api_worker_action(name, action):
     name = clean_name(name)
-    actions = {"start": start_worker, "stop": stop_worker, "restart": restart_worker}
+    actions = {"start": start_worker, "stop": stop_worker,
+               "restart": restart_worker, "shutdown": shutdown_worker}
     if action == "ip":
         return jsonify(check_ip(name))
     if action == "leaktest":
@@ -1092,7 +1110,8 @@ def api_bulk(action):
         names = [clean_name(t) for t in body["targets"]] if body.get("targets") else list_profiles()
         return jsonify(fan_out(names, lambda n: (start_worker(n), worker_status(n))[1]))
     names = resolve_targets(body.get("targets"))
-    fns = {"stop": stop_worker, "restart": restart_worker, "remove": remove_worker, "ip": check_ip}
+    fns = {"stop": stop_worker, "restart": restart_worker, "shutdown": shutdown_worker,
+           "remove": remove_worker, "ip": check_ip}
     if action not in fns:
         abort(404, f"unknown bulk action {action}")
     return jsonify(fan_out(names, lambda n: fns[action](n) or {"ok": True}))
@@ -1107,6 +1126,134 @@ def api_exec():
     timeout = max(1, min(int(body.get("timeout", 60)), 600))
     names = resolve_targets(body.get("targets"))
     return jsonify(fan_out(names, lambda n: exec_in(n, command, timeout)))
+
+
+# ---------- fan-out probe: the same HTTP request from every exit, diffed ----------
+PROBE_MAX_BODY = 2 * 1024 * 1024  # read at most 2 MiB of each response (for hashing)
+PROBE_METHODS = {"GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"}
+
+
+def _probe_result(status, final_url, data, t0, hdrs):
+    return {
+        "status": status,
+        "final_url": final_url,
+        "size": len(data),
+        "hash": hashlib.sha256(data).hexdigest()[:12],
+        "server": hdrs.get("Server", ""),
+        "ctype": (hdrs.get("Content-Type", "") or "").split(";")[0].strip(),
+        "ms": int((time.time() - t0) * 1000),
+    }
+
+
+def _probe_one(url, method, headers, body, timeout, proxy=None):
+    """One request, optionally through an exit's HTTP proxy. HTTP error responses
+    (403/451/...) are recorded as results, not errors — that's the signal we want."""
+    handlers = [urllib.request.ProxyHandler({"http": proxy, "https": proxy})] if proxy \
+        else [urllib.request.ProxyHandler({})]  # {} = ignore any ambient proxy env
+    opener = urllib.request.build_opener(*handlers)
+    data_bytes = body.encode("utf-8") if body else None
+    req = urllib.request.Request(url, method=method, data=data_bytes)
+    req.add_header("User-Agent", "Flotilla-Probe/1.0")
+    for k, v in (headers or {}).items():
+        req.add_header(str(k), str(v))
+    t0 = time.time()
+    try:
+        with opener.open(req, timeout=timeout) as r:
+            return _probe_result(r.status, r.url, r.read(PROBE_MAX_BODY), t0, dict(r.headers))
+    except urllib.error.HTTPError as e:
+        try:
+            payload = e.read(PROBE_MAX_BODY)
+        except Exception:
+            payload = b""
+        return _probe_result(e.code, getattr(e, "url", url), payload, t0, dict(e.headers or {}))
+    except (urllib.error.URLError, socket.timeout, OSError, ValueError) as e:
+        return {"error": str(getattr(e, "reason", e))[:160], "ms": int((time.time() - t0) * 1000)}
+
+
+def _target_is_private(host):
+    """True if a hostname resolves to a loopback/private/link-local address (so we
+    never make the untunnelled direct baseline hit internal infrastructure)."""
+    if not host:
+        return True
+    try:
+        for res in socket.getaddrinfo(host, None):
+            ip = ipaddress.ip_address(res[4][0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return True
+    except (socket.gaierror, ValueError, OSError):
+        return True  # unresolvable → treat as unsafe for the direct baseline
+    return False
+
+
+@app.post("/api/probe")
+def api_probe():
+    body = request.get_json(silent=True) or {}
+    url = (body.get("url") or "").strip()
+    if not url:
+        abort(400, "url is required")
+    if "://" not in url:
+        url = "https://" + url
+    pu = urllib.parse.urlparse(url)
+    if pu.scheme not in ("http", "https") or not pu.hostname:
+        abort(400, "url must be an http(s) URL")
+    method = (body.get("method") or "GET").upper()
+    if method not in PROBE_METHODS:
+        abort(400, f"method must be one of {sorted(PROBE_METHODS)}")
+    headers = body.get("headers") or {}
+    if not isinstance(headers, dict):
+        abort(400, "headers must be a JSON object")
+    reqbody = body.get("body") or ""
+    timeout = max(1, min(int(body.get("timeout", 20)), 60))
+    want_direct = bool(body.get("baseline"))
+
+    targets = []  # (name, proxy_url) for exits with a reachable proxy right now
+    for n in list_profiles():
+        tgt = _exit_proxy_target(n)
+        if tgt:
+            targets.append((n, f"http://{tgt[0]}:{tgt[1]}"))
+    if not targets and not want_direct:
+        abort(400, "no online exits to probe — connect at least one exit, "
+                   "or enable the direct baseline")
+
+    def run_exit(item):
+        n, proxy = item
+        r = _probe_one(url, method, headers, reqbody, timeout, proxy=proxy)
+        info = ip_cache.get(n) or {}
+        r.update(exit=n, country=info.get("country"),
+                 country_iso=info.get("country_iso"), ip=info.get("ip"))
+        return r
+
+    futures = [(item[0], pool.submit(run_exit, item)) for item in targets]
+    rows = []
+    for n, fut in futures:
+        try:
+            rows.append(fut.result())
+        except Exception as e:
+            rows.append({"exit": n, "error": str(e)[:160]})
+
+    # majority (status, body-hash) among successful exits → flag the outliers
+    sigs = [(r.get("status"), r.get("hash")) for r in rows if "error" not in r]
+    majority = Counter(sigs).most_common(1)[0][0] if sigs else None
+    for r in rows:
+        if "error" in r:
+            r["diff"] = "error"
+        else:
+            r["diff"] = "same" if (r.get("status"), r.get("hash")) == majority else "outlier"
+
+    direct = None
+    if want_direct:
+        if _target_is_private(pu.hostname):
+            direct = {"exit": "direct (no VPN)",
+                      "error": "skipped: target resolves to a private/loopback address"}
+        else:
+            direct = _probe_one(url, method, headers, reqbody, timeout, proxy=None)
+            direct["exit"] = "direct (no VPN)"
+            if "error" not in direct and majority:
+                direct["diff"] = "same" if (direct.get("status"), direct.get("hash")) == majority else "outlier"
+
+    rows.sort(key=lambda r: (r.get("country") or "~~", r.get("exit") or ""))
+    maj = {"status": majority[0], "hash": majority[1]} if majority else None
+    return jsonify(url=url, method=method, count=len(rows), majority=maj, rows=rows, direct=direct)
 
 
 # ---- scripts ----
